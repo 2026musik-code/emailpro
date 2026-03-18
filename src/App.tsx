@@ -40,6 +40,7 @@ export default function App() {
   const [domainStatuses, setDomainStatuses] = useState<Record<string, boolean>>({});
   const [checkingDomains, setCheckingDomains] = useState(false);
   const [isDomainDropdownOpen, setIsDomainDropdownOpen] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const VIP_DOMAINS = [
@@ -96,6 +97,22 @@ export default function App() {
     }
     fetchDomains();
   }, []);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (autoRefresh && account) {
+      interval = setInterval(() => {
+        fetchMessages(account);
+      }, 5000);
+    }
+    return () => clearInterval(interval);
+  }, [autoRefresh, account]);
+
+  const highlightOTP = (text: string) => {
+    return text.replace(/\b\d{4,8}\b/g, (match) => 
+      `<span class="text-4xl font-bold text-emerald-400">${match}</span>`
+    );
+  };
 
   const syncAccountsToR2 = async (accounts: any[]) => {
     try {
@@ -297,16 +314,30 @@ export default function App() {
     if (!currentToken && acc.provider !== 'generator.email') return;
     
     setRefreshing(true);
+    
+    const fetchWithRetry = async (url: string, options: any, retries = 3): Promise<Response> => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          return await fetch(url, options);
+        } catch (err) {
+          if (i === retries - 1) throw err;
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+      throw new Error('Failed to fetch after retries');
+    };
+
     try {
       if (acc.provider === 'generator.email') {
         addLog(`Fetching inbox for generator.email: ${acc.usr}@${acc.dmn}`, 'info');
-        const response = await fetch(`/api/generator/inbox?usr=${acc.usr}&dmn=${acc.dmn}`);
+        const response = await fetchWithRetry(`/api/generator/inbox?usr=${acc.usr}&dmn=${acc.dmn}`, {});
         
         if (!response.ok) {
           throw new Error(`Generator.email inbox fetch failed: ${response.status} ${response.statusText}`);
         }
         
         const data = await response.json();
+        addLog(`Generator.email response: ${JSON.stringify(data).substring(0, 200)}`, 'info');
         
         const messagesList: any[] = [];
         
@@ -317,6 +348,8 @@ export default function App() {
           const parser = new DOMParser();
           const doc = parser.parseFromString(data.html, 'text/html');
           const emailContentDiv = doc.querySelector('#email-table') || doc.querySelector('.e7m.row.message');
+          
+          addLog(`Email content div found: ${!!emailContentDiv}`, emailContentDiv ? 'success' : 'error');
           
           data.messages.forEach((msg: any, index: number) => {
             messagesList.push({
@@ -330,7 +363,7 @@ export default function App() {
             });
           });
         } else {
-          addLog(`No messages found in generator.email inbox`, 'info');
+          addLog(`No messages found in generator.email inbox, data.messages: ${JSON.stringify(data.messages)}`, 'info');
         }
         
         setMessages(messagesList);
@@ -339,7 +372,7 @@ export default function App() {
         }
       } else {
         addLog(`Fetching inbox for mail.tm`, 'info');
-        const res = await fetch(`${API_BASE}/messages`, {
+        const res = await fetchWithRetry(`${API_BASE}/messages`, {
           headers: { Authorization: `Bearer ${currentToken}` }
         });
         if (res.ok) {
@@ -477,9 +510,9 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white font-sans selection:bg-purple-500/30 flex flex-col">
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-purple-500/30 flex flex-col">
       {/* Header */}
-      <header className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-white/5 bg-[#0a0a0a]/80 backdrop-blur-xl sticky top-0 z-40">
+      <header className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-slate-800 bg-slate-950/80 backdrop-blur-xl sticky top-0 z-40">
         <div className="flex items-center gap-3 sm:gap-4">
           <button 
             onClick={() => setIsSidebarOpen(true)} 
@@ -497,6 +530,13 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-2 sm:gap-4">
+          <button 
+            onClick={() => setAutoRefresh(!autoRefresh)}
+            className={`p-2 sm:p-2.5 rounded-xl transition-all active:scale-95 ${autoRefresh ? 'bg-emerald-500/20 text-emerald-400' : 'hover:bg-white/10 text-gray-400 hover:text-white'}`}
+            title="Auto-Refresh Inbox (5s)"
+          >
+            <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${autoRefresh ? 'animate-spin' : ''}`} />
+          </button>
           <button 
             onClick={() => setShowLogs(!showLogs)}
             className={`p-2 sm:p-2.5 rounded-xl transition-all active:scale-95 ${showLogs ? 'bg-indigo-500/20 text-indigo-400' : 'hover:bg-white/10 text-gray-400 hover:text-white'}`}
@@ -532,7 +572,7 @@ export default function App() {
         {!account ? (
           // Landing Page
           <div className="flex-1 flex flex-col items-center justify-center sm:justify-start mt-4 sm:mt-12 w-full max-w-md mx-auto">
-            <div className="w-full bg-[#111] border border-white/10 rounded-[24px] p-6 sm:p-8 shadow-2xl relative overflow-hidden">
+            <div className="w-full bg-slate-900 border border-slate-800 rounded-[24px] p-6 sm:p-8 shadow-2xl relative overflow-hidden">
               {/* Decorative background glow */}
               <div className="absolute -top-24 -right-24 w-48 h-48 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
               <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-purple-500/20 rounded-full blur-3xl pointer-events-none"></div>
@@ -550,27 +590,45 @@ export default function App() {
                     value={username}
                     onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9]/g, '').toLowerCase())}
                     placeholder="contoh: john"
-                    className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl px-4 py-3.5 text-white placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all text-base"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all text-base"
                   />
                 </div>
                 {tool === 'mail.tm' ? (
                   <div>
-                    <label className="block text-xs sm:text-sm font-semibold text-gray-300 mb-2 uppercase tracking-wider">Domain</label>
+                    <label className="block text-xs sm:text-sm font-semibold text-amber-500 mb-2 uppercase tracking-wider">Domain</label>
                     <div className="relative">
                       <select 
                         value={selectedDomain}
                         onChange={(e) => setSelectedDomain(e.target.value)}
-                        className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl px-4 py-3.5 text-white appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all text-base"
+                        className="w-full bg-black border border-amber-600/50 rounded-xl px-4 py-3.5 text-amber-100 appearance-none focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-base"
                       >
-                        {domains.length === 0 ? (
-                          <option value="">Memuat domain...</option>
-                        ) : (
-                          domains.map(d => (
-                            <option key={d.id} value={d.domain} className="bg-[#111] text-white">@{d.domain}</option>
-                          ))
-                        )}
+                        <optgroup label="👑 ELITE" className="bg-black text-amber-500">
+                          <option value="googl.win" className="bg-black text-slate-100">● googl.win - 821 Days Active</option>
+                          <option value="maildoc.org" className="bg-black text-slate-100">● maildoc.org - 159 Days Active</option>
+                          <option value="capcutpro.click" className="bg-black text-slate-100">● capcutpro.click - 120 Days Active</option>
+                          <option value="g-mail.kr" className="bg-black text-slate-100">● g-mail.kr - 113 Days Active</option>
+                          <option value="jymz.xyz" className="bg-black text-slate-100">● jymz.xyz - 72 Days Active</option>
+                        </optgroup>
+                        <optgroup label="⚡ FAST OTP" className="bg-black text-amber-500">
+                          <option value="id-mail.kr" className="bg-black text-slate-100">id-mail.kr</option>
+                          <option value="getcode1.com" className="bg-black text-slate-100">getcode1.com</option>
+                          <option value="codemail1.com" className="bg-black text-slate-100">codemail1.com</option>
+                          <option value="681mail.com" className="bg-black text-slate-100">681mail.com</option>
+                          <option value="katanajp.shop" className="bg-black text-slate-100">katanajp.shop</option>
+                          <option value="my-mail.kr" className="bg-black text-slate-100">my-mail.kr</option>
+                          <option value="mail-id.kr" className="bg-black text-slate-100">mail-id.kr</option>
+                          <option value="getcode.com" className="bg-black text-slate-100">getcode.com</option>
+                        </optgroup>
+                        <optgroup label="🌐 GLOBAL" className="bg-black text-amber-500">
+                          <option value="ads24h.top" className="bg-black text-slate-100">ads24h.top</option>
+                          <option value="emailviettel.my" className="bg-black text-slate-100">emailviettel.my</option>
+                          <option value="fviamail.com" className="bg-black text-slate-100">fviamail.com</option>
+                          <option value="primails.me" className="bg-black text-slate-100">primails.me</option>
+                          <option value="gapura.cloud" className="bg-black text-slate-100">gapura.cloud</option>
+                          <option value="nusantara.xyz" className="bg-black text-slate-100">nusantara.xyz</option>
+                        </optgroup>
                       </select>
-                      <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">
+                      <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-amber-500">
                         <ChevronDown className="w-5 h-5" />
                       </div>
                     </div>
@@ -857,9 +915,12 @@ export default function App() {
                     />
                   ) : (
                     <div className="p-6 sm:p-8 bg-[#0a0a0a] h-full">
-                      <pre className="whitespace-pre-wrap font-sans text-gray-300 text-sm sm:text-base leading-relaxed">
-                        {showTranslation && selectedMessage.translatedText ? selectedMessage.translatedText : (selectedMessage.text || 'Tidak ada konten')}
-                      </pre>
+                      <div 
+                        className="whitespace-pre-wrap font-sans text-gray-300 text-sm sm:text-base leading-relaxed"
+                        dangerouslySetInnerHTML={{
+                          __html: highlightOTP(showTranslation && selectedMessage.translatedText ? selectedMessage.translatedText : (selectedMessage.text || 'Tidak ada konten'))
+                        }}
+                      />
                     </div>
                   )}
                 </div>
