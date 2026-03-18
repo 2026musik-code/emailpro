@@ -76,6 +76,75 @@ async function writeToR2(key: string, data: any) {
 }
 
 // API Routes
+app.post('/api/generator/validate', async (req, res) => {
+  try {
+    const { usr, dmn } = req.body;
+    const response = await fetch('https://generator.email/check_adres_validation3.php', {
+      method: 'POST',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Origin': 'https://generator.email',
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: `usr=${usr}&dmn=${dmn}`
+    });
+    const data = await response.text();
+    try {
+      res.json(JSON.parse(data));
+    } catch {
+      res.send(data);
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/generator/inbox', async (req, res) => {
+  try {
+    const { usr, dmn } = req.query;
+    if (!usr || !dmn) {
+      return res.status(400).json({ error: 'Missing usr or dmn' });
+    }
+    console.log(`Fetching inbox for ${usr}@${dmn}`);
+    const response = await fetch(`https://generator.email/${dmn}/${usr}`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+      }
+    });
+    console.log(`Generator.email fetch status: ${response.status}`);
+    if (!response.ok) {
+      throw new Error(`Generator.email fetch failed with status ${response.status}`);
+    }
+    const html = await response.text();
+    
+    // Logika Simple Scraper untuk mengambil isi tabel email
+    const messages = [];
+    const regex = /<div class="e7m from_div_45g45gg">(.*?)<\/div>.*?<div class="e7m subj_div_45g45gg">(.*?)<\/div>.*?<div class="e7m time_div_45g45gg">(.*?)<\/div>/gs;
+    
+    let match;
+    while ((match = regex.exec(html)) !== null) {
+      messages.push({
+        from: match[1].trim(),
+        subject: match[2].trim(),
+        time: match[3].trim()
+      });
+    }
+
+    res.json({ 
+      email: `${usr}@${dmn}`,
+      total: messages.length,
+      messages: messages,
+      html: html // Keep html for full view if needed
+    });
+  } catch (error: any) {
+    console.error('Error in /api/generator/inbox:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/api/accounts', async (req, res) => {
   const accounts = await readFromR2('accounts.json') || [];
   res.json(accounts);
