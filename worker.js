@@ -31,11 +31,14 @@ const html = `<!DOCTYPE html>
     
     <div id="app" class="max-w-3xl mx-auto p-4 sm:p-6 lg:p-8 min-h-screen flex flex-col">
         <header class="flex items-center justify-between py-6 mb-8">
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-2 pr-6 shadow-lg">
+                <button id="openSidebarBtn" class="p-2 rounded-xl hover:bg-white/10 text-white transition-colors">
+                    <i data-lucide="menu" class="w-6 h-6"></i>
+                </button>
                 <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-fuchsia-600 flex items-center justify-center shadow-lg shadow-purple-500/20">
                     <i data-lucide="mail" class="w-6 h-6 text-white"></i>
                 </div>
-                <h1 class="text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-purple-200">
+                <h1 class="text-xl sm:text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-purple-200 ml-1">
                     EMAIL PRO
                 </h1>
             </div>
@@ -45,11 +48,7 @@ const html = `<!DOCTYPE html>
             </button>
         </header>
 
-        <main id="landingPage" class="flex-1 flex flex-col items-center justify-center max-w-md mx-auto w-full">
-            <div class="text-center mb-10">
-                <h2 class="text-4xl font-bold mb-4 tracking-tight">Temporary Email,<br/>Premium Experience.</h2>
-                <p class="text-purple-200/80 text-lg">Buat alamat email sementara yang aman dan instan.</p>
-            </div>
+        <main id="landingPage" class="flex-1 flex flex-col items-center justify-start mt-12 max-w-md mx-auto w-full">
             <div class="w-full glass-card p-6 sm:p-8">
                 <form id="generateForm" class="space-y-5">
                     <div>
@@ -114,6 +113,20 @@ const html = `<!DOCTYPE html>
         </main>
     </div>
 
+    <div id="sidebar" class="hidden fixed inset-0 z-50 flex">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" id="sidebarBackdrop"></div>
+        <div class="relative w-72 max-w-[80vw] bg-gray-900 border-r border-white/10 h-full shadow-2xl flex flex-col">
+            <div class="p-4 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
+                <h2 class="font-bold text-lg text-white">List Akun</h2>
+                <button id="closeSidebarBtn" class="p-2 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-4 space-y-2 bg-black/20" id="savedAccountsList">
+            </div>
+        </div>
+    </div>
+
     <div id="messageModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" id="modalBackdrop"></div>
         <div class="relative w-full max-w-2xl bg-gray-900 border border-white/10 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -143,6 +156,7 @@ const html = `<!DOCTYPE html>
         const API_BASE = 'https://api.mail.tm';
         let account = JSON.parse(localStorage.getItem('mail_account')) || null;
         let token = localStorage.getItem('mail_token') || null;
+        let savedAccounts = JSON.parse(localStorage.getItem('saved_accounts')) || [];
         let pollingInterval = null;
 
         const landingPage = document.getElementById('landingPage');
@@ -171,13 +185,64 @@ const html = `<!DOCTYPE html>
         const modalSenderEmail = document.getElementById('modalSenderEmail');
         const modalLoader = document.getElementById('modalLoader');
         const modalContent = document.getElementById('modalContent');
+        const sidebar = document.getElementById('sidebar');
+        const openSidebarBtn = document.getElementById('openSidebarBtn');
+        const closeSidebarBtn = document.getElementById('closeSidebarBtn');
+        const sidebarBackdrop = document.getElementById('sidebarBackdrop');
+        const savedAccountsList = document.getElementById('savedAccountsList');
 
         async function init() {
+            // Fetch accounts from R2 backend
+            try {
+                const res = await fetch('/api/accounts');
+                const data = await res.json();
+                if (Array.isArray(data) && data.length > 0) {
+                    savedAccounts = data;
+                    localStorage.setItem('saved_accounts', JSON.stringify(data));
+                } else if (account && token && savedAccounts.length === 0) {
+                    savedAccounts = [{ address: account.address, token: token, id: account.id }];
+                    localStorage.setItem('saved_accounts', JSON.stringify(savedAccounts));
+                    syncAccountsToR2(savedAccounts);
+                }
+            } catch (err) {
+                console.error('Failed to fetch accounts from R2', err);
+                if (account && token && savedAccounts.length === 0) {
+                    savedAccounts = [{ address: account.address, token: token, id: account.id }];
+                    localStorage.setItem('saved_accounts', JSON.stringify(savedAccounts));
+                }
+            }
+            
+            renderSavedAccounts();
+
             if (account && token) {
                 showDashboard();
             } else {
                 showLanding();
                 await fetchDomains();
+            }
+        }
+
+        async function syncAccountsToR2(accounts) {
+            try {
+                await fetch('/api/accounts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ accounts })
+                });
+            } catch (err) {
+                console.error('Failed to sync accounts to R2', err);
+            }
+        }
+
+        async function syncEmailsToR2(accountId, emails) {
+            try {
+                await fetch(\`/api/emails/\${accountId}\`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ emails })
+                });
+            } catch (err) {
+                console.error('Failed to sync emails to R2', err);
             }
         }
 
@@ -239,6 +304,12 @@ const html = `<!DOCTYPE html>
                 localStorage.setItem('mail_account', JSON.stringify(account));
                 localStorage.setItem('mail_token', token);
 
+                const newAcc = { address: account.address, token: token, id: account.id };
+                savedAccounts = [newAcc, ...savedAccounts.filter(a => a.id !== account.id)];
+                localStorage.setItem('saved_accounts', JSON.stringify(savedAccounts));
+                syncAccountsToR2(savedAccounts);
+                renderSavedAccounts();
+
                 showDashboard();
             } catch (err) {
                 showError(err.message);
@@ -259,7 +330,11 @@ const html = `<!DOCTYPE html>
                 
                 if (res.ok) {
                     const data = await res.json();
-                    renderMessages(data['hydra:member'] || []);
+                    const msgs = data['hydra:member'] || [];
+                    renderMessages(msgs);
+                    if (msgs.length > 0 && account && account.id) {
+                        syncEmailsToR2(account.id, msgs);
+                    }
                 }
             } catch (err) {
                 console.error('Gagal mengambil pesan', err);
@@ -384,6 +459,60 @@ const html = `<!DOCTYPE html>
         closeModalBtn.addEventListener('click', closeModal);
         modalBackdrop.addEventListener('click', closeModal);
         
+        openSidebarBtn.addEventListener('click', () => sidebar.classList.remove('hidden'));
+        closeSidebarBtn.addEventListener('click', () => sidebar.classList.add('hidden'));
+        sidebarBackdrop.addEventListener('click', () => sidebar.classList.add('hidden'));
+
+        function renderSavedAccounts() {
+            if (savedAccounts.length === 0) {
+                savedAccountsList.innerHTML = '<p class="text-sm text-purple-200/60 text-center mt-4">Belum ada akun tersimpan</p>';
+                return;
+            }
+            
+            savedAccountsList.innerHTML = '';
+            savedAccounts.forEach(acc => {
+                const isActive = account && account.id === acc.id;
+                const div = document.createElement('div');
+                div.className = \`w-full text-left p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between group \${isActive ? 'bg-purple-500/20 border-purple-500/50' : 'bg-black/40 border-white/5 hover:bg-white/10'}\`;
+                div.innerHTML = \`
+                    <div class="truncate pr-2" onclick="switchAccount('\${acc.id}')">
+                        <p class="text-sm font-medium text-white truncate">\${acc.address}</p>
+                    </div>
+                    <button onclick="deleteAccount(event, '\${acc.id}')" class="p-1.5 rounded-lg hover:bg-red-500/20 text-white/30 hover:text-red-400 transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100" title="Hapus Akun">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                    </button>
+                \`;
+                savedAccountsList.appendChild(div);
+            });
+            lucide.createIcons();
+        }
+
+        window.switchAccount = function(id) {
+            const acc = savedAccounts.find(a => a.id === id);
+            if (acc) {
+                account = { address: acc.address, id: acc.id };
+                token = acc.token;
+                localStorage.setItem('mail_account', JSON.stringify(account));
+                localStorage.setItem('mail_token', token);
+                sidebar.classList.add('hidden');
+                messageList.innerHTML = '';
+                renderSavedAccounts();
+                showDashboard();
+            }
+        };
+
+        window.deleteAccount = function(event, id) {
+            event.stopPropagation();
+            savedAccounts = savedAccounts.filter(a => a.id !== id);
+            localStorage.setItem('saved_accounts', JSON.stringify(savedAccounts));
+            syncAccountsToR2(savedAccounts);
+            renderSavedAccounts();
+            
+            if (account && account.id === id) {
+                logoutBtn.click();
+            }
+        };
+
         logoutBtn.addEventListener('click', () => {
             localStorage.removeItem('mail_account');
             localStorage.removeItem('mail_token');
