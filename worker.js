@@ -10,10 +10,6 @@ const html = `<!DOCTYPE html>
     <style>
         body {
             font-family: 'Inter', sans-serif;
-            background: radial-gradient(ellipse at top, #581c87, #111827, #000000);
-            background-attachment: fixed;
-            color: white;
-            min-height: 100vh;
         }
         .glass-card {
             background: rgba(255, 255, 255, 0.05);
@@ -29,7 +25,10 @@ const html = `<!DOCTYPE html>
         ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
     </style>
 </head>
-<body class="antialiased selection:bg-purple-500/30">
+<body class="antialiased selection:bg-purple-500/30 bg-gray-900 text-white min-h-screen relative">
+    <!-- Fixed Background -->
+    <div class="fixed inset-0 z-[-1] bg-[radial-gradient(ellipse_at_top,_#581c87,_#111827,_#000000)]"></div>
+    
     <div id="app" class="max-w-3xl mx-auto p-4 sm:p-6 lg:p-8 min-h-screen flex flex-col">
         <header class="flex items-center justify-between py-6 mb-8">
             <div class="flex items-center gap-3">
@@ -397,7 +396,7 @@ const html = `<!DOCTYPE html>
         init();
     </script>
 </body>
-</html>\`;
+</html>`;
 
 export default {
   async fetch(request, env, ctx) {
