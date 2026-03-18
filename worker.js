@@ -25,9 +25,9 @@ const html = `<!DOCTYPE html>
         ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
     </style>
 </head>
-<body class="antialiased selection:bg-purple-500/30 bg-gray-900 text-white min-h-screen relative">
+<body class="antialiased selection:bg-purple-500/30 bg-black text-white min-h-screen relative">
     <!-- Fixed Background -->
-    <div class="fixed inset-0 z-[-1] bg-[radial-gradient(ellipse_at_top,_#581c87,_#111827,_#000000)]"></div>
+    <div class="fixed inset-0 z-[-1] bg-black"></div>
     
     <div id="app" class="max-w-3xl mx-auto p-4 sm:p-6 lg:p-8 min-h-screen flex flex-col">
         <header class="flex items-center justify-between py-6 mb-8">
@@ -54,12 +54,12 @@ const html = `<!DOCTYPE html>
                 <form id="generateForm" class="space-y-5">
                     <div>
                         <label class="block text-sm font-medium text-purple-200 mb-2">Custom Name</label>
-                        <input type="text" id="usernameInput" required placeholder="contoh: john" class="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-white/20 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all">
+                        <input type="text" id="usernameInput" required placeholder="contoh: john" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all">
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-purple-200 mb-2">Pilih Domain</label>
                         <div class="relative">
-                            <select id="domainSelect" class="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all">
+                            <select id="domainSelect" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all">
                                 <option value="">Memuat domain...</option>
                             </select>
                             <div class="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-white/50">
