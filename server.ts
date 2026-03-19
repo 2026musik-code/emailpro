@@ -15,9 +15,9 @@ async function startServer() {
   const USER_AGENT = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36';
 
   // Proxy routes for generator.email
-  app.post('/api/generator/validate', async (req, res) => {
+  app.get('/api/generator/validate', async (req, res) => {
     try {
-      const { usr, dmn } = req.body;
+      const { usr, dmn } = req.query;
       const response = await fetch('https://generator.email/check_adres_validation3.php', {
         method: 'POST',
         headers: {
@@ -36,7 +36,7 @@ async function startServer() {
         const data = JSON.parse(text);
         res.json(data);
       } catch (e) {
-        res.json({ status: text.trim(), raw: text });
+        res.json({ status: text.trim() || 'error', raw: text });
       }
     } catch (error: any) {
       console.error('Error in /api/generator/validate:', error.message);

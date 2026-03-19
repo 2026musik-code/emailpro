@@ -164,10 +164,9 @@ export default function App() {
         const address = `${usr}@${dmn}`;
         
         // Validate via proxy
-        const res = await fetch('/api/generator/validate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ usr, dmn })
+        const res = await fetch(`/api/generator/validate?usr=${usr}&dmn=${dmn}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' }
         });
         
         const text = await res.text();
