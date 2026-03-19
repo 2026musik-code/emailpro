@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { serveStatic } from "hono/cloudflare-workers";
 
 const app = new Hono();
 
@@ -88,15 +89,15 @@ api.get("/generator/inbox", async (c) => {
     const $ = load(html);
     const emails: any[] = [];
 
-    $("#email-table .list-group-item-info, #email-table .list-group-item").each((i, el) => {
-      if ($(el).hasClass("active")) return;
-      const from = $(el).find('div[class*="from_div"]').text().trim();
-      const subject = $(el).find('div[class*="subj_div"]').text().trim();
-      const time = $(el).find('div[class*="time_div"]').text().trim();
-      const link = $(el).find("a").attr("href") || $(el).attr("onclick")?.match(/'([^']+)'/)?.[1];
+    // Parse the active/latest email (usually displayed as a div, not a link)
+    $("#email-table .list-group-item-info").each((i, el) => {
+      const from = $(el).find('[class*="from_div"]').text().trim();
+      const subject = $(el).find('[class*="subj_div"]').text().trim();
+      const time = $(el).find('[class*="time_div"]').text().trim();
+      
       if (from) {
         emails.push({
-          id: link ? link.split("/").pop() : `msg-${i}`,
+          id: 'active', // Special ID to indicate we should just fetch the main page
           from,
           subject: subject || "(No Subject)",
           date: time || "Recent",
@@ -105,6 +106,26 @@ api.get("/generator/inbox", async (c) => {
       }
     });
 
+    // Parse other emails (usually displayed as links)
+    $("#email-table a.list-group-item").each((i, el) => {
+      const from = $(el).find('[class*="from_div"]').text().trim();
+      const subject = $(el).find('[class*="subj_div"]').text().trim();
+      const time = $(el).find('[class*="time_div"]').text().trim();
+      const href = $(el).attr("href");
+      const id = href ? href.split("/").pop() : `msg-${i}`;
+      
+      if (from) {
+        emails.push({
+          id,
+          from,
+          subject: subject || "(No Subject)",
+          date: time || "Recent",
+          body_preview: subject || "Click to read",
+        });
+      }
+    });
+
+    // Fallback for different layouts
     if (emails.length === 0) {
       $(".e7m.row.msg_list").each((i, el) => {
         const from = $(el).find(".e7m.col-md-3.col-sm-3.col-xs-12").text().trim();
@@ -126,16 +147,42 @@ api.get("/generator/message", async (c) => {
   const { usr, dmn, id } = c.req.query();
   try {
     const { load } = await import("cheerio");
-    const url = `https://generator.email/${dmn}/${usr}/${id}`;
+    // If id is 'active', the content is on the main inbox page
+    const url = id === 'active' 
+        ? `https://generator.email/${dmn}/${usr}`
+        : `https://generator.email/${dmn}/${usr}/${id}`;
+        
     const response = await fetch(url, {
       headers: { "User-Agent": USER_AGENT, "Cookie": `surl=${dmn}/${usr}` },
     });
 
     const htmlContent = await response.text();
     const $ = load(htmlContent);
-    const from = $(".e7m.from_name").text().trim() || "Unknown";
-    const subject = $(".e7m.subject_name").text().trim() || "No Subject";
-    const html = $(".e7m.message_content").html() || $(".e7m.content_msg").html() || "No content";
+    
+    // Extract From
+    let from = "";
+    const fromSpan = $("span:contains('From: ')").next("span").text().trim();
+    if (fromSpan) {
+        from = fromSpan.split("(sender info)")[0].trim();
+    } else {
+        from = $(".e7m.from_name").text().trim() || $('[class*="from_div"]').first().text().trim() || "Unknown";
+    }
+
+    // Extract Subject
+    let subject = "";
+    const subjSpan = $("span:contains('Subject: ')").next("div").text().trim();
+    if (subjSpan) {
+        subject = subjSpan;
+    } else {
+        subject = $(".e7m.subject_name").text().trim() || $('[class*="subj_div"]').first().text().trim() || "No Subject";
+    }
+
+    // Extract Body
+    let html = $(".e7m.mess_bodiyy").html() || $(".e7m.message_content").html() || $(".e7m.content_msg").html() || "";
+    
+    if (!html) {
+        html = "<p>No content found. The email might be empty or the layout has changed.</p>";
+    }
 
     return c.json({
       status: "success",
