@@ -166,25 +166,21 @@ app.get('/api/generator/inbox', async (req, res) => {
     const regex = /<div class="e7m from_div_45g45gg">([\s\S]*?)<\/div>[\s\S]*?<div class="e7m subj_div_45g45gg">([\s\S]*?)<\/div>[\s\S]*?<div class="e7m time_div_45g45gg">([\s\S]*?)<\/div>/gi;
     
     let match;
+    let idCounter = 1;
     while ((match = regex.exec(html)) !== null) {
       messages.push({
+        id: (idCounter++).toString(),
         from: match[1].replace(/<[^>]*>?/gm, '').trim(),
         subject: match[2].replace(/<[^>]*>?/gm, '').trim(),
-        time: match[3].replace(/<[^>]*>?/gm, '').trim()
+        body_preview: match[2].replace(/<[^>]*>?/gm, '').trim()
       });
     }
 
     console.log(`Scraped ${messages.length} messages.`);
-    
-    res.json({ 
-      email: `${usr}@${dmn}`,
-      total: messages.length,
-      messages: messages
-    });
+    res.json({ status: 'success', emails: messages });
   } catch (error: any) {
     console.error('Error in /api/generator/inbox:', error);
-    // Return a valid JSON response even on error to avoid frontend syntax errors
-    res.status(500).json({ email: `${usr}@${dmn}`, total: 0, messages: [], error: error.message });
+    res.status(500).json({ status: 'error', error: error.message });
   }
 });
 

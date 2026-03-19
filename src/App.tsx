@@ -363,18 +363,18 @@ export default function App() {
         
         const messagesList: any[] = [];
         
-        if (data.messages && data.messages.length > 0) {
-          addLog(`Found ${data.messages.length} messages in generator.email inbox`, 'success');
+        if (data.status === 'success' && data.emails && data.emails.length > 0) {
+          addLog(`Found ${data.emails.length} messages in generator.email inbox`, 'success');
           
-          data.messages.forEach((msg: any, index: number) => {
+          data.emails.forEach((msg: any) => {
             messagesList.push({
-              id: `gen-${Date.now()}-${index}`,
+              id: msg.id,
               from: { address: msg.from, name: msg.from },
               subject: msg.subject,
-              createdAt: msg.time || new Date().toISOString(),
-              html: msg.subject,
-              text: msg.subject,
-              intro: msg.subject
+              createdAt: new Date().toISOString(),
+              html: msg.body_preview,
+              text: msg.body_preview,
+              intro: msg.body_preview
             });
           });
         } else {
