@@ -599,12 +599,16 @@ export default function App() {
                         {selectedEmail.from}
                       </div>
                     </div>
-                    <div className="flex-1 overflow-y-auto p-6 bg-white text-zinc-900 custom-scrollbar selection:bg-indigo-200">
-                      {selectedEmail.html ? (
-                        <div dangerouslySetInnerHTML={{ __html: selectedEmail.html }} />
-                      ) : (
-                        <pre className="whitespace-pre-wrap font-sans text-sm">{selectedEmail.text}</pre>
-                      )}
+                    <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-[#0a0a0a] custom-scrollbar selection:bg-indigo-500/30">
+                      <div className="bg-gradient-to-br from-indigo-900/20 via-purple-900/10 to-zinc-900/40 border border-indigo-500/20 rounded-3xl p-6 sm:p-8 shadow-2xl backdrop-blur-sm min-h-full">
+                        <div className="email-content text-sm leading-relaxed text-zinc-200">
+                          {selectedEmail.html ? (
+                            <div dangerouslySetInnerHTML={{ __html: selectedEmail.html }} />
+                          ) : (
+                            <pre className="whitespace-pre-wrap font-sans text-sm">{selectedEmail.text}</pre>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </motion.div>
                 ) : (
@@ -704,6 +708,77 @@ export default function App() {
         }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
           background: #3f3f46;
+        }
+        .email-content {
+          color: #e4e4e7;
+          font-family: 'Inter', sans-serif;
+          line-height: 1.6;
+        }
+        .email-content a {
+          color: #60a5fa;
+          text-decoration: underline;
+        }
+        .email-content h1, .email-content h2, .email-content h3, .email-content h4, .email-content h5, .email-content h6 {
+          color: #f4f4f5;
+          margin-top: 1.5em;
+          margin-bottom: 0.5em;
+          font-weight: 600;
+        }
+        .email-content p {
+          margin-bottom: 1em;
+        }
+        .email-content ul, .email-content ol {
+          margin-bottom: 1em;
+          padding-left: 1.5em;
+        }
+        .email-content li {
+          margin-bottom: 0.25em;
+        }
+        .email-content blockquote {
+          border-left: 4px solid #3f3f46;
+          padding-left: 1em;
+          color: #a1a1aa;
+          margin-left: 0;
+          margin-right: 0;
+          font-style: italic;
+        }
+        .email-content pre {
+          background-color: #18181b;
+          padding: 1em;
+          border-radius: 0.5rem;
+          overflow-x: auto;
+          border: 1px solid #27272a;
+        }
+        .email-content code {
+          background-color: #27272a;
+          padding: 0.2em 0.4em;
+          border-radius: 0.25rem;
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 0.875em;
+        }
+        .email-content pre code {
+          background-color: transparent;
+          padding: 0;
+        }
+        .email-content img {
+          max-width: 100%;
+          height: auto;
+          border-radius: 0.5rem;
+          margin: 1em 0;
+        }
+        .email-content table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 1em;
+        }
+        .email-content th, .email-content td {
+          border: 1px solid #3f3f46;
+          padding: 0.5em;
+          text-align: left;
+        }
+        .email-content th {
+          background-color: #27272a;
+          font-weight: 600;
         }
       `}</style>
     </div>
