@@ -1,7 +1,6 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
-import axios from "axios";
 import cors from "cors";
 import * as cheerio from "cheerio";
 
@@ -19,18 +18,26 @@ async function startServer() {
   app.post('/api/generator/validate', async (req, res) => {
     try {
       const { usr, dmn } = req.body;
-      const response = await axios.post('https://generator.email/check_adres_validation3.php', 
-        `usr=${usr}&dmn=${dmn}`,
-        {
-          headers: {
-            'User-Agent': USER_AGENT,
-            'X-Requested-With': 'XMLHttpRequest',
-            'Origin': 'https://generator.email',
-            'Content-Type': 'application/x-www-form-urlencoded'
-          }
-        }
-      );
-      res.json(response.data);
+      const response = await fetch('https://generator.email/check_adres_validation3.php', {
+        method: 'POST',
+        headers: {
+          'User-Agent': USER_AGENT,
+          'X-Requested-With': 'XMLHttpRequest',
+          'Origin': 'https://generator.email',
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: `usr=${usr}&dmn=${dmn}`
+      });
+      
+      const text = await response.text();
+      
+      // Try to parse as JSON, if fails, send as raw status
+      try {
+        const data = JSON.parse(text);
+        res.json(data);
+      } catch (e) {
+        res.json({ status: text.trim(), raw: text });
+      }
     } catch (error: any) {
       console.error('Error in /api/generator/validate:', error.message);
       res.status(500).json({ error: error.message });
@@ -40,13 +47,14 @@ async function startServer() {
   app.get('/api/generator/search', async (req, res) => {
     try {
       const { key } = req.query;
-      const response = await axios.get(`https://generator.email/search.php?key=${key}`, {
+      const response = await fetch(`https://generator.email/search.php?key=${key}`, {
         headers: {
           'User-Agent': USER_AGENT,
           'X-Requested-With': 'XMLHttpRequest'
         }
       });
-      res.json(response.data);
+      const data = await response.json();
+      res.json(data);
     } catch (error: any) {
       console.error('Error in /api/generator/search:', error.message);
       res.status(500).json({ error: error.message });
@@ -57,7 +65,7 @@ async function startServer() {
     try {
       const { usr, dmn } = req.query;
       const url = `https://generator.email/${dmn}/${usr}`;
-      const response = await axios.get(url, {
+      const response = await fetch(url, {
         headers: {
           'User-Agent': USER_AGENT,
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -65,7 +73,8 @@ async function startServer() {
         }
       });
 
-      const $ = cheerio.load(response.data);
+      const html = await response.text();
+      const $ = cheerio.load(html);
       const emails: any[] = [];
 
       // 1. Try parsing using the structure provided by the user (dynamic classes)
@@ -139,14 +148,15 @@ async function startServer() {
     try {
       const { usr, dmn, id } = req.query;
       const url = `https://generator.email/${dmn}/${usr}/${id}`;
-      const response = await axios.get(url, {
+      const response = await fetch(url, {
         headers: {
           'User-Agent': USER_AGENT,
           'Cookie': `surl=${dmn}/${usr}`
         }
       });
 
-      const $ = cheerio.load(response.data);
+      const htmlContent = await response.text();
+      const $ = cheerio.load(htmlContent);
       
       // Extract message details
       const from = $('.e7m.from_name').text().trim() || 'Unknown';

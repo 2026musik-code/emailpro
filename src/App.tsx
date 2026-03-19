@@ -169,14 +169,31 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ usr, dmn })
         });
-        const data = await res.json();
         
-        if (data.status === 'good') {
+        const text = await res.text();
+        
+        if (!res.ok) {
+          throw new Error(`Server error (${res.status}): ${text || 'Empty response'}`);
+        }
+        
+        let data: any = {};
+        try {
+          data = text ? JSON.parse(text) : {};
+        } catch (e) {
+          // If not JSON, check if it contains 'good' or 'success'
+          if (text.toLowerCase().includes('good') || text.toLowerCase().includes('success')) {
+            data = { status: 'good' };
+          } else {
+            throw new Error(`Invalid response format: ${text.substring(0, 50)}...`);
+          }
+        }
+        
+        if (data.status === 'good' || data.status === 'success' || text.includes('good')) {
           const newAcc: Account = { address, token: 'gen-token', id: usr, provider: 'generator.email', usr, dmn };
           setAccount(newAcc);
           addLog(`Generator.email approved: ${address}`, 'success');
         } else {
-          throw new Error('Domain not supported by Generator.email');
+          throw new Error('Domain not supported or validation failed');
         }
       }
     } catch (err: any) {
