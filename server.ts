@@ -1,6 +1,6 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
-import path from "path";
+import path from "node:path";
 import cors from "cors";
 import * as cheerio from "cheerio";
 import serverless from "serverless-http";
