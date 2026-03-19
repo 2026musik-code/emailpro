@@ -3,6 +3,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import axios from "axios";
 import cors from "cors";
+import * as cheerio from "cheerio";
 
 async function startServer() {
   const app = express();
@@ -12,6 +13,8 @@ async function startServer() {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
+  const USER_AGENT = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36';
+
   // Proxy routes for generator.email
   app.post('/api/generator/validate', async (req, res) => {
     try {
@@ -20,7 +23,7 @@ async function startServer() {
         `usr=${usr}&dmn=${dmn}`,
         {
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36',
+            'User-Agent': USER_AGENT,
             'X-Requested-With': 'XMLHttpRequest',
             'Origin': 'https://generator.email',
             'Content-Type': 'application/x-www-form-urlencoded'
@@ -39,7 +42,7 @@ async function startServer() {
       const { key } = req.query;
       const response = await axios.get(`https://generator.email/search.php?key=${key}`, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36',
+          'User-Agent': USER_AGENT,
           'X-Requested-With': 'XMLHttpRequest'
         }
       });
@@ -53,15 +56,116 @@ async function startServer() {
   app.get('/api/generator/inbox', async (req, res) => {
     try {
       const { usr, dmn } = req.query;
-      const response = await axios.get(`https://generator.email/${dmn}/${usr}`, {
+      const url = `https://generator.email/${dmn}/${usr}`;
+      const response = await axios.get(url, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8'
+          'User-Agent': USER_AGENT,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Cookie': `surl=${dmn}/${usr}`
         }
       });
-      res.send(response.data);
+
+      const $ = cheerio.load(response.data);
+      const emails: any[] = [];
+
+      // 1. Try parsing using the structure provided by the user (dynamic classes)
+      $('#email-table .list-group-item-info, #email-table .list-group-item').each((i, el) => {
+        // Skip the header row if it's there
+        if ($(el).hasClass('active')) return;
+
+        const from = $(el).find('div[class*="from_div"]').text().trim();
+        const subject = $(el).find('div[class*="subj_div"]').text().trim();
+        const time = $(el).find('div[class*="time_div"]').text().trim();
+        const link = $(el).find('a').attr('href') || $(el).attr('onclick')?.match(/'([^']+)'/)?.[1];
+        
+        if (from) {
+          const id = link ? link.split('/').pop() : `msg-${i}`;
+          emails.push({
+            id,
+            from,
+            subject: subject || '(No Subject)',
+            date: time || 'Recent',
+            body_preview: subject || 'Click to read'
+          });
+        }
+      });
+
+      // 2. Fallback: Parse the inbox table/list (common generator.email structure)
+      if (emails.length === 0) {
+        $('.e7m.row.msg_list').each((i, el) => {
+          const from = $(el).find('.e7m.col-md-3.col-sm-3.col-xs-12').text().trim();
+          const subject = $(el).find('.e7m.col-md-9.col-sm-9.col-xs-12').text().trim();
+          const link = $(el).find('a').attr('href');
+          
+          if (from && subject && link) {
+            const id = link.split('/').pop();
+            emails.push({
+              id,
+              from,
+              subject,
+              date: 'Just now',
+              body_preview: subject
+            });
+          }
+        });
+      }
+
+      // 3. Second Fallback: Dropdown items
+      if (emails.length === 0) {
+        $('.e7m.dropdown-item.waves-effect').each((i, el) => {
+          const text = $(el).text().trim();
+          const href = $(el).attr('href');
+          if (href && href !== '/' && text !== 'No recent mailbox') {
+            const parts = text.split(' - ');
+            emails.push({
+              id: href.split('/').pop(),
+              from: parts[0] || 'Unknown',
+              subject: parts[1] || 'No Subject',
+              date: 'Recent',
+              body_preview: text
+            });
+          }
+        });
+      }
+
+      res.json({ status: "success", total: emails.length, emails });
     } catch (error: any) {
       console.error('Error in /api/generator/inbox:', error.message);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/generator/message', async (req, res) => {
+    try {
+      const { usr, dmn, id } = req.query;
+      const url = `https://generator.email/${dmn}/${usr}/${id}`;
+      const response = await axios.get(url, {
+        headers: {
+          'User-Agent': USER_AGENT,
+          'Cookie': `surl=${dmn}/${usr}`
+        }
+      });
+
+      const $ = cheerio.load(response.data);
+      
+      // Extract message details
+      const from = $('.e7m.from_name').text().trim() || 'Unknown';
+      const subject = $('.e7m.subject_name').text().trim() || 'No Subject';
+      const html = $('.e7m.message_content').html() || $('.e7m.content_msg').html() || 'No content';
+
+      res.json({
+        status: "success",
+        data: {
+          id,
+          from,
+          subject,
+          date: 'Recent',
+          html,
+          text: $(html).text()
+        }
+      });
+    } catch (error: any) {
+      console.error('Error in /api/generator/message:', error.message);
       res.status(500).json({ error: error.message });
     }
   });

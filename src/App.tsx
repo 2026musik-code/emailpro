@@ -23,6 +23,8 @@ import {
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+import { io, Socket } from 'socket.io-client';
+
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
@@ -81,25 +83,31 @@ export default function App() {
   // --- API Helpers ---
   const fetchDomains = async () => {
     try {
+      addLog(`Fetching domains for ${tool}...`, 'info');
       if (tool === 'mail.tm') {
         const res = await fetch(`${MAIL_TM_API}/domains`);
         const data = await res.json();
-        setDomains(data['hydra:member'].map((d: any) => d.domain));
-        setSelectedDomain(data['hydra:member'][0]?.domain || '');
+        const dmns = data['hydra:member'].map((d: any) => d.domain);
+        setDomains(dmns);
+        setSelectedDomain(dmns[0] || '');
+        addLog(`Loaded ${dmns.length} domains from Mail.tm`, 'success');
       } else if (tool === '1secmail') {
         const res = await fetch(`${SECMAIL_API}?action=getDomainList`);
         const data = await res.json();
         setDomains(data);
         setSelectedDomain(data[0] || '');
+        addLog(`Loaded ${data.length} domains from 1secmail`, 'success');
       } else {
         // Mock domains for generator.email proxy
-        setDomains([
+        const dmns = [
           'jymz.xyz', 'tako.skin', 'capcutpro.click', 'clonetrust.com', 
           'sparkletoc.com', 'theweifamily.icu', 'maildoc.org', 'xuseca.cloud',
           'googl.win', 'thip-like.com', 'c-tta.top', 'nowtopzen.com',
           'ebarg.net', 'btcmod.com', 'tmxttvmail.com'
-        ]);
-        setSelectedDomain('jymz.xyz');
+        ];
+        setDomains(dmns);
+        setSelectedDomain(dmns[0]);
+        addLog(`Loaded ${dmns.length} domains for Generator`, 'success');
       }
     } catch (err) {
       addLog('Failed to fetch domains', 'error');
@@ -211,10 +219,15 @@ export default function App() {
           body_preview: 'Click to read'
         }));
         setEmails(msgs);
-      } else {
-        // generator.email proxy - this is harder as it returns HTML
-        // For now, we'll just log that we're checking
-        addLog('Checking Generator.email inbox...', 'info');
+      } else if (account.provider === 'generator.email') {
+        const res = await fetch(`/api/generator/inbox?usr=${account.usr}&dmn=${account.dmn}`);
+        const data = await res.json();
+        if (data.status === 'success') {
+          setEmails(data.emails);
+          if (data.emails.length > emails.length && soundEnabled) {
+            new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3').play().catch(() => {});
+          }
+        }
       }
     } catch (err) {
       addLog('Failed to fetch emails', 'error');
@@ -251,6 +264,12 @@ export default function App() {
           html: data.htmlBody || data.body,
           text: data.body
         });
+      } else if (account.provider === 'generator.email') {
+        const res = await fetch(`/api/generator/message?usr=${account.usr}&dmn=${account.dmn}&id=${id}`);
+        const data = await res.json();
+        if (data.status === 'success') {
+          setSelectedEmail(data.data);
+        }
       }
     } catch (err) {
       addLog('Failed to read email', 'error');
@@ -258,6 +277,31 @@ export default function App() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (account?.provider === 'generator.email') {
+      const socket: Socket = io('wss://generator.email', {
+        path: '/socket.io',
+        transports: ['websocket']
+      });
+
+      const channel = `${account.usr}@${account.dmn}`.toLowerCase();
+      
+      socket.on('connect', () => {
+        addLog('Connected to Generator.email real-time stream', 'info');
+        socket.emit('watch_for_my_email', channel);
+      });
+
+      socket.on('new_email', (data) => {
+        addLog('New email received via real-time stream!', 'success');
+        fetchEmails();
+      });
+
+      return () => {
+        socket.disconnect();
+      };
+    }
+  }, [account, fetchEmails]);
 
   useEffect(() => {
     if (account) {
@@ -322,35 +366,46 @@ export default function App() {
           
           {/* Generator Card */}
           <section className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-6 shadow-2xl overflow-hidden relative group">
-            <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
+            <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity pointer-events-none">
               <Zap className="w-32 h-32 text-indigo-500" />
             </div>
             
-            <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-              <Plus className="w-5 h-5 text-indigo-400" />
-              Generate Mail
-            </h2>
+            <div className="relative z-10">
+              <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+                <Plus className="w-5 h-5 text-indigo-400" />
+                Generate Mail
+              </h2>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-zinc-500 mb-2 uppercase tracking-wider">Provider</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['mail.tm', '1secmail', 'generator.email'] as const).map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => setTool(p)}
-                      className={cn(
-                        "py-2 text-[10px] font-bold rounded-xl border transition-all uppercase tracking-tight",
-                        tool === p 
-                          ? "bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-500/20" 
-                          : "bg-zinc-800/50 border-zinc-700 text-zinc-400 hover:border-zinc-600"
-                      )}
-                    >
-                      {p.split('.')[0]}
-                    </button>
-                  ))}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-500 mb-2 uppercase tracking-wider">Provider</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { id: 'mail.tm', label: 'Mail.tm' },
+                      { id: '1secmail', label: '1secmail' },
+                      { id: 'generator.email', label: 'Generator' }
+                    ].map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setTool(p.id as any);
+                          addLog(`Switched to ${p.label} provider`, 'info');
+                        }}
+                        className={cn(
+                          "py-2.5 text-[10px] font-bold rounded-xl border transition-all uppercase tracking-tight cursor-pointer",
+                          tool === p.id 
+                            ? "bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-500/20" 
+                            : "bg-zinc-800/50 border-zinc-700 text-zinc-400 hover:border-zinc-600 active:scale-95"
+                        )}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
 
               <div>
                 <label className="block text-xs font-semibold text-zinc-500 mb-2 uppercase tracking-wider">Username (Optional)</label>
@@ -385,7 +440,8 @@ export default function App() {
                 {account ? 'Generate New' : 'Create Account'}
               </button>
             </div>
-          </section>
+          </div>
+        </section>
 
           {/* Logs Card */}
           <section className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-6 h-[300px] flex flex-col">
