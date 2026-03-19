@@ -3,6 +3,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import cors from "cors";
 import * as cheerio from "cheerio";
+import serverless from "serverless-http";
 
 async function startServer() {
   const app = express();
@@ -217,9 +218,30 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  // For standard Node environments
+  if (process.env.NODE_ENV !== "production" || !process.env.CLOUDFLARE_WORKER) {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
+
+  // Return the app for the handler
+  return app;
 }
 
-startServer();
+// For Cloudflare Workers compatibility
+const serverPromise = startServer();
+let handler: any;
+
+export default {
+  async fetch(request: Request, env: any, ctx: any) {
+    if (!handler) {
+      const app = await serverPromise;
+      handler = serverless(app, { binary: true });
+    }
+    
+    // Cloudflare Workers fetch handler expects a Response object
+    // serverless-http handles the conversion between Web Request/Response and Node req/res
+    return handler(request, env, ctx);
+  }
+};
