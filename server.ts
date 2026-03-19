@@ -107,37 +107,68 @@ app.get('/api/generator/inbox', async (req, res) => {
       return res.status(400).json({ error: 'Missing usr or dmn' });
     }
     console.log(`Fetching inbox for ${usr}@${dmn}`);
-    const response = await fetch(`https://generator.email/${dmn}/${usr}`, {
+    
+    // The main page doesn't contain the messages. We need to call /check_mail.php
+    // which is what the site uses internally to check for new mail.
+    const response = await fetch(`https://generator.email/check_mail.php`, {
+      method: 'POST',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://generator.email/',
+      },
+      body: new URLSearchParams({
+        usr: usr,
+        dmn: dmn
+      })
+    });
+
+    console.log(`Generator.email check_mail status: ${response.status}`);
+    if (!response.ok) {
+      throw new Error(`Generator.email check_mail failed with status ${response.status}`);
+    }
+    
+    const data = await response.text();
+    console.log('Response from check_mail:', data);
+
+    if (data.includes('no access')) {
+      console.log('Access denied by generator.email');
+      return res.json({ email: `${usr}@${dmn}`, total: 0, messages: [] });
+    }
+
+    // If it's not JSON, we might need to handle it differently.
+    // For now, let's proceed to fetch the mailbox page.
+    
+    const mailboxResponse = await fetch(`https://generator.email/${dmn}/${usr}`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://generator.email/',
       }
     });
-    console.log(`Generator.email fetch status: ${response.status}`);
-    if (!response.ok) {
-      throw new Error(`Generator.email fetch failed with status ${response.status}`);
-    }
-    const html = await response.text();
     
-    // Logika Simple Scraper untuk mengambil isi tabel email
+    const html = await mailboxResponse.text();
+    
+    // Now we need to find the actual message list in this HTML.
+    console.log('Mailbox HTML length:', html.length);
+
     const messages = [];
-    const regex = /<div class="e7m from_div_45g45gg">(.*?)<\/div>.*?<div class="e7m subj_div_45g45gg">(.*?)<\/div>.*?<div class="e7m time_div_45g45gg">(.*?)<\/div>/gs;
+    const regex = /<div class="e7m from_div_45g45gg">([\s\S]*?)<\/div>[\s\S]*?<div class="e7m subj_div_45g45gg">([\s\S]*?)<\/div>[\s\S]*?<div class="e7m time_div_45g45gg">([\s\S]*?)<\/div>/gi;
     
     let match;
     while ((match = regex.exec(html)) !== null) {
       messages.push({
-        from: match[1].trim(),
-        subject: match[2].trim(),
-        time: match[3].trim()
+        from: match[1].replace(/<[^>]*>?/gm, '').trim(),
+        subject: match[2].replace(/<[^>]*>?/gm, '').trim(),
+        time: match[3].replace(/<[^>]*>?/gm, '').trim()
       });
     }
 
+    console.log(`Scraped ${messages.length} messages.`);
+    
     res.json({ 
       email: `${usr}@${dmn}`,
       total: messages.length,
-      messages: messages,
-      html: html // Keep html for full view if needed
+      messages: messages
     });
   } catch (error: any) {
     console.error('Error in /api/generator/inbox:', error);

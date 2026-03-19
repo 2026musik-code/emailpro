@@ -44,10 +44,10 @@ export default function App() {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const VIP_DOMAINS = [
-    { category: '👑 THE ELDERS (Uptime Tinggi)', domains: ['googl.win', 'maildoc.org', 'capcutpro.click', 'huyducfullxu.cloud', 'g-mail.kr'] },
-    { category: '⚡ FAST OTP (Dari Foto Sniffing)', domains: ['getcode1.com', 'codemail1.com', '681mail.com', 'katanajp.shop', 'getcode.com', 'id-mail.kr', 'my-mail.kr', 'mail-id.kr', 'kr-mail.kr'] },
-    { category: '🌐 INTERNATIONAL PATH', domains: ['jymz.xyz', 'tako.skin', 'gapura.cloud', 'nusantara.xyz', 'kopi.live', 'teh.asia'] },
-    { category: '🛡️ SHIELD/BYPASS PATH', domains: ['edu.kr.net', 'pro-mail.org', 'vip-mail.tech'] }
+    { category: '👑 ELITE', domains: [{ name: 'googl.win', uptime: '821d' }, { name: 'maildoc.org', uptime: '159d' }, { name: 'capcutpro.click', uptime: '120d' }, { name: 'g-mail.kr', uptime: '113d' }, { name: 'jymz.xyz', uptime: '72d' }] },
+    { category: '⚡ FAST OTP', domains: [{ name: 'id-mail.kr' }, { name: 'getcode1.com' }, { name: 'codemail1.com' }, { name: '681mail.com' }, { name: 'katanajp.shop' }, { name: 'my-mail.kr' }, { name: 'mail-id.kr' }, { name: 'kr-mail.kr' }, { name: 'getcode.com' }] },
+    { category: '🌏 ASIA & INDO', domains: [{ name: 'akunku.shop' }, { name: 'berkahfb.com' }, { name: 'chatgptku.pro' }, { name: 'autoxugiare.com' }, { name: 'clonechatluong.net' }] },
+    { category: '🌐 GLOBAL', domains: [{ name: 'travelistaworld.com' }, { name: 'xcvv.xyz' }, { name: 'gglorytogod.com' }, { name: 'gmail2.gq' }, { name: '11jac.com' }, { name: 'btcmod.com' }, { name: 'gapura.cloud' }, { name: 'nusantara.xyz' }] }
   ];
 
   const addLog = (message: string, type: 'info' | 'error' | 'success' = 'info') => {
@@ -109,9 +109,10 @@ export default function App() {
   }, [autoRefresh, account]);
 
   const highlightOTP = (text: string) => {
-    return text.replace(/\b\d{4,8}\b/g, (match) => 
-      `<span class="text-4xl font-bold text-emerald-400">${match}</span>`
-    );
+    return text.replace(/\b\d{6}\b/g, (match) => {
+      navigator.clipboard.writeText(match);
+      return `<span class="text-4xl font-bold text-green-400 bg-black p-2 rounded-lg border-2 border-green-400 shadow-[0_0_10px_#4ade80]">${match}</span>`;
+    });
   };
 
   const syncAccountsToR2 = async (accounts: any[]) => {
@@ -164,7 +165,7 @@ export default function App() {
     // Process in batches of 3 to avoid overwhelming the proxy
     for (let i = 0; i < allDomains.length; i += 3) {
       const batch = allDomains.slice(i, i + 3);
-      await Promise.all(batch.map(checkDomain));
+      await Promise.all(batch.map(d => checkDomain(d.name)));
     }
     setCheckingDomains(false);
   };
@@ -310,6 +311,11 @@ export default function App() {
   // Fetch messages
   const fetchMessages = async (acc = account) => {
     if (!acc) return;
+    
+    // Ensure we use the correct usr and dmn for generator.email
+    const usr = acc.usr || acc.address?.split('@')[0];
+    const dmn = acc.dmn || acc.address?.split('@')[1];
+    
     const currentToken = acc.token || token;
     if (!currentToken && acc.provider !== 'generator.email') return;
     
@@ -329,8 +335,8 @@ export default function App() {
 
     try {
       if (acc.provider === 'generator.email') {
-        addLog(`Fetching inbox for generator.email: ${acc.usr}@${acc.dmn}`, 'info');
-        const response = await fetchWithRetry(`/api/generator/inbox?usr=${acc.usr}&dmn=${acc.dmn}`, {});
+        addLog(`Fetching inbox for generator.email: ${usr}@${dmn}`, 'info');
+        const response = await fetchWithRetry(`/api/generator/inbox?usr=${usr}&dmn=${dmn}`, {});
         
         if (!response.ok) {
           throw new Error(`Generator.email inbox fetch failed: ${response.status} ${response.statusText}`);
@@ -344,26 +350,19 @@ export default function App() {
         if (data.messages && data.messages.length > 0) {
           addLog(`Found ${data.messages.length} messages in generator.email inbox`, 'success');
           
-          // Parse the full HTML to get the email content if needed
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(data.html, 'text/html');
-          const emailContentDiv = doc.querySelector('#email-table') || doc.querySelector('.e7m.row.message');
-          
-          addLog(`Email content div found: ${!!emailContentDiv}`, emailContentDiv ? 'success' : 'error');
-          
           data.messages.forEach((msg: any, index: number) => {
             messagesList.push({
               id: `gen-${Date.now()}-${index}`,
               from: { address: msg.from, name: msg.from },
               subject: msg.subject,
-              createdAt: new Date().toISOString(), // Or try to parse msg.time
-              html: emailContentDiv ? emailContentDiv.innerHTML : data.html,
-              text: emailContentDiv ? emailContentDiv.textContent : '',
+              createdAt: msg.time || new Date().toISOString(),
+              html: msg.subject,
+              text: msg.subject,
               intro: msg.subject
             });
           });
         } else {
-          addLog(`No messages found in generator.email inbox, data.messages: ${JSON.stringify(data.messages)}`, 'info');
+          addLog(`No messages found in generator.email inbox`, 'info');
         }
         
         setMessages(messagesList);
@@ -600,33 +599,17 @@ export default function App() {
                       <select 
                         value={selectedDomain}
                         onChange={(e) => setSelectedDomain(e.target.value)}
-                        className="w-full bg-black border border-amber-600/50 rounded-xl px-4 py-3.5 text-amber-100 appearance-none focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-base"
+                        className="w-full bg-black border-2 border-purple-600 rounded-xl px-4 py-3.5 text-white appearance-none focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all text-base"
                       >
-                        <optgroup label="👑 ELITE" className="bg-black text-amber-500">
-                          <option value="googl.win" className="bg-black text-slate-100">● googl.win - 821 Days Active</option>
-                          <option value="maildoc.org" className="bg-black text-slate-100">● maildoc.org - 159 Days Active</option>
-                          <option value="capcutpro.click" className="bg-black text-slate-100">● capcutpro.click - 120 Days Active</option>
-                          <option value="g-mail.kr" className="bg-black text-slate-100">● g-mail.kr - 113 Days Active</option>
-                          <option value="jymz.xyz" className="bg-black text-slate-100">● jymz.xyz - 72 Days Active</option>
-                        </optgroup>
-                        <optgroup label="⚡ FAST OTP" className="bg-black text-amber-500">
-                          <option value="id-mail.kr" className="bg-black text-slate-100">id-mail.kr</option>
-                          <option value="getcode1.com" className="bg-black text-slate-100">getcode1.com</option>
-                          <option value="codemail1.com" className="bg-black text-slate-100">codemail1.com</option>
-                          <option value="681mail.com" className="bg-black text-slate-100">681mail.com</option>
-                          <option value="katanajp.shop" className="bg-black text-slate-100">katanajp.shop</option>
-                          <option value="my-mail.kr" className="bg-black text-slate-100">my-mail.kr</option>
-                          <option value="mail-id.kr" className="bg-black text-slate-100">mail-id.kr</option>
-                          <option value="getcode.com" className="bg-black text-slate-100">getcode.com</option>
-                        </optgroup>
-                        <optgroup label="🌐 GLOBAL" className="bg-black text-amber-500">
-                          <option value="ads24h.top" className="bg-black text-slate-100">ads24h.top</option>
-                          <option value="emailviettel.my" className="bg-black text-slate-100">emailviettel.my</option>
-                          <option value="fviamail.com" className="bg-black text-slate-100">fviamail.com</option>
-                          <option value="primails.me" className="bg-black text-slate-100">primails.me</option>
-                          <option value="gapura.cloud" className="bg-black text-slate-100">gapura.cloud</option>
-                          <option value="nusantara.xyz" className="bg-black text-slate-100">nusantara.xyz</option>
-                        </optgroup>
+                        {VIP_DOMAINS.map((group) => (
+                          <optgroup key={group.category} label={group.category} className="bg-black text-purple-400 font-bold">
+                            {group.domains.map((d) => (
+                              <option key={d.name} value={d.name} className="bg-black text-white">
+                                {group.category === '👑 ELITE' ? '● ' : ''}{d.name} {d.uptime ? `(${d.uptime})` : ''}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
                       </select>
                       <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-amber-500">
                         <ChevronDown className="w-5 h-5" />
@@ -669,22 +652,16 @@ export default function App() {
                               </div>
                               {category.domains.map(domain => (
                                 <div 
-                                  key={domain}
+                                  key={domain.name}
                                   onClick={() => {
-                                    setGeneratorDomain(domain);
+                                    setGeneratorDomain(domain.name);
                                     setIsDomainDropdownOpen(false);
                                   }}
                                   className="px-4 py-2.5 hover:bg-white/10 cursor-pointer flex items-center justify-between transition-colors"
                                 >
-                                  <span className="text-sm text-gray-200">{domain}</span>
+                                  <span className="text-sm text-gray-200">{domain.name}</span>
                                   <div className="flex items-center gap-2">
-                                    {domainStatuses[domain] === undefined ? (
-                                      <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-500" />
-                                    ) : domainStatuses[domain] ? (
-                                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" title="Online"></span>
-                                    ) : (
-                                      <span className="w-2.5 h-2.5 rounded-full bg-red-500/50" title="Offline"></span>
-                                    )}
+                                    {category.category === '👑 ELITE' && <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]"></div>}
                                   </div>
                                 </div>
                               ))}
@@ -762,7 +739,15 @@ export default function App() {
               </div>
 
               <div className="flex-1 overflow-y-auto bg-[#0a0a0a]">
-                {messages.length === 0 ? (
+                {refreshing ? (
+                  <div className="flex flex-col items-center justify-center h-full min-h-[300px] text-center px-4 py-12">
+                    <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4">
+                      <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+                    </div>
+                    <p className="text-gray-300 font-medium text-lg">Memuat pesan...</p>
+                    <p className="text-sm text-gray-500 mt-1">Mohon tunggu sebentar</p>
+                  </div>
+                ) : messages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full min-h-[300px] text-center px-4 py-12">
                     <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4">
                       <Inbox className="w-8 h-8 text-gray-500" />
@@ -773,7 +758,7 @@ export default function App() {
                 ) : (
                   <ul className="divide-y divide-white/5">
                     {messages.map((msg) => {
-                      const senderInitial = (msg.from.name || msg.from.address || '?').charAt(0).toUpperCase();
+                      const senderInitial = (msg.from?.name || msg.from?.address || '?').charAt(0).toUpperCase();
                       return (
                         <li key={msg.id}>
                           <button 
@@ -786,7 +771,7 @@ export default function App() {
                             <div className="flex-1 min-w-0 pt-0.5">
                               <div className="flex items-center justify-between mb-1 gap-2">
                                 <p className="font-semibold text-gray-200 truncate group-hover:text-indigo-300 transition-colors text-sm sm:text-base">
-                                  {msg.from.name || msg.from.address}
+                                  {msg.from?.name || msg.from?.address || 'Unknown'}
                                 </p>
                                 <span className="text-[10px] sm:text-xs font-medium text-gray-500 whitespace-nowrap">
                                   {new Date(msg.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
