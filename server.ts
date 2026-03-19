@@ -17,7 +17,7 @@ const api = new Hono();
 api.get("/health", (c) => {
   return c.json({
     status: "ok",
-    environment: process.env.NODE_ENV || "production",
+    environment: c.env?.NODE_ENV || "production",
     timestamp: new Date().toISOString(),
   });
 });
@@ -138,42 +138,11 @@ api.get("/generator/message", async (c) => {
 
 app.route("/api", api);
 
-// --- STATIC ASSETS & DEV MODE ---
-if (process.env.NODE_ENV === "production") {
-  // Serve static files from Cloudflare KV
-  app.get("/assets/*", serveStatic({ root: "./" }));
-  app.get("/index.html", serveStatic({ path: "./index.html" }));
-  app.get("/", serveStatic({ path: "./index.html" }));
-  // SPA fallback
-  app.get("*", serveStatic({ path: "./index.html" }));
-} else {
-  // Dev mode helper (Node.js)
-  // This part will be handled by the dev server script
-}
+// --- STATIC ASSETS (Production) ---
+// Serve static files from Cloudflare KV
+app.get("/assets/*", serveStatic({ root: "./" }));
+app.get("/favicon.ico", serveStatic({ path: "./favicon.ico" }));
+app.get("/", serveStatic({ path: "./index.html" }));
+app.get("*", serveStatic({ path: "./index.html" }));
 
 export default app;
-
-// For Node.js development environment compatibility
-if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production') {
-  const { serve } = await import('@hono/node-server');
-  const { createServer: createViteServer } = await import('vite');
-  
-  const vite = await createViteServer({
-    server: { middlewareMode: true },
-    appType: 'spa'
-  });
-
-  serve({
-    fetch: (req) => {
-      const url = new URL(req.url);
-      if (url.pathname.startsWith('/api')) {
-        return app.fetch(req);
-      }
-      // For everything else, let Vite handle it in dev
-      return new Response(null, { status: 404 }); // Vite middleware handles this via the raw node server
-    },
-    port: 3000
-  });
-  
-  console.log('Dev server running on http://localhost:3000');
-}
