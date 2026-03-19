@@ -172,7 +172,8 @@ app.get('/api/generator/inbox', async (req, res) => {
     });
   } catch (error: any) {
     console.error('Error in /api/generator/inbox:', error);
-    res.status(500).json({ error: error.message });
+    // Return a valid JSON response even on error to avoid frontend syntax errors
+    res.status(500).json({ email: `${usr}@${dmn}`, total: 0, messages: [], error: error.message });
   }
 });
 
