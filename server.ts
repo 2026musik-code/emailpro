@@ -1,9 +1,12 @@
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import path from "node:path";
 import cors from "cors";
 import * as cheerio from "cheerio";
 import serverless from "serverless-http";
+import { getAssetFromKV } from "@cloudflare/kv-asset-handler";
+// @ts-ignore
+import manifestJSON from "__STATIC_CONTENT_MANIFEST";
+const assetManifest = JSON.parse(manifestJSON);
 
 async function startServer() {
   const app = express();
@@ -205,12 +208,13 @@ async function startServer() {
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else {
+  } else if (!process.env.CLOUDFLARE_WORKER) {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
@@ -235,13 +239,49 @@ let handler: any;
 
 export default {
   async fetch(request: Request, env: any, ctx: any) {
+    const url = new URL(request.url);
+    
+    // 1. Handle API routes via Express
+    if (url.pathname.startsWith('/api')) {
+      if (!handler) {
+        const app = await serverPromise;
+        handler = serverless(app, { binary: true });
+      }
+      return handler(request, env, ctx);
+    }
+    
+    // 2. Handle static assets via Cloudflare KV (Production only)
+    if (process.env.NODE_ENV === "production") {
+      try {
+        return await getAssetFromKV(
+          { request, waitUntil: ctx.waitUntil.bind(ctx) },
+          {
+            ASSET_NAMESPACE: env.__STATIC_CONTENT,
+            ASSET_MANIFEST: assetManifest,
+          }
+        );
+      } catch (e) {
+        // Fallback to index.html for SPA routing
+        try {
+          return await getAssetFromKV(
+            { request, waitUntil: ctx.waitUntil.bind(ctx) },
+            {
+              ASSET_NAMESPACE: env.__STATIC_CONTENT,
+              ASSET_MANIFEST: assetManifest,
+              mapRequestToAsset: (req: any) => new Request(`${new URL(req.url).origin}/index.html`, req),
+            }
+          );
+        } catch (e2) {
+          return new Response("Not Found", { status: 404 });
+        }
+      }
+    }
+    
+    // 3. Fallback for development (Standard Express/Vite)
     if (!handler) {
       const app = await serverPromise;
       handler = serverless(app, { binary: true });
     }
-    
-    // Cloudflare Workers fetch handler expects a Response object
-    // serverless-http handles the conversion between Web Request/Response and Node req/res
     return handler(request, env, ctx);
   }
 };
