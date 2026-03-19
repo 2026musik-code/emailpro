@@ -14,13 +14,21 @@ async function startServer() {
 
   const USER_AGENT = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36';
 
+  // --- API ROUTES START ---
+  // We use a dedicated router for /api to ensure it's handled separately
+  const apiRouter = express.Router();
+
   // Health check
-  app.get(['/api/health', '/api/health/'], (req, res) => {
-    res.json({ status: "ok", environment: process.env.NODE_ENV || 'development' });
+  apiRouter.get(['/health', '/health/'], (req, res) => {
+    res.json({ 
+      status: "ok", 
+      environment: process.env.NODE_ENV || 'development',
+      timestamp: new Date().toISOString()
+    });
   });
 
   // Proxy routes for generator.email
-  app.get(['/api/generator/validate', '/api/generator/validate/'], async (req, res) => {
+  apiRouter.get(['/generator/validate', '/generator/validate/'], async (req, res) => {
     console.log(`[API] Validate request: ${req.query.usr}@${req.query.dmn}`);
     try {
       const { usr, dmn } = req.query;
@@ -54,7 +62,7 @@ async function startServer() {
     }
   });
 
-  app.get(['/api/generator/search', '/api/generator/search/'], async (req, res) => {
+  apiRouter.get(['/generator/search', '/generator/search/'], async (req, res) => {
     try {
       const { key } = req.query;
       const response = await fetch(`https://generator.email/search.php?key=${key}`, {
@@ -71,7 +79,7 @@ async function startServer() {
     }
   });
 
-  app.get(['/api/generator/inbox', '/api/generator/inbox/'], async (req, res) => {
+  apiRouter.get(['/generator/inbox', '/generator/inbox/'], async (req, res) => {
     try {
       const { usr, dmn } = req.query;
       const url = `https://generator.email/${dmn}/${usr}`;
@@ -154,7 +162,7 @@ async function startServer() {
     }
   });
 
-  app.get(['/api/generator/message', '/api/generator/message/'], async (req, res) => {
+  apiRouter.get(['/generator/message', '/generator/message/'], async (req, res) => {
     try {
       const { usr, dmn, id } = req.query;
       const url = `https://generator.email/${dmn}/${usr}/${id}`;
@@ -189,6 +197,10 @@ async function startServer() {
       res.status(500).json({ error: error.message });
     }
   });
+
+  // Mount the API router
+  app.use('/api', apiRouter);
+  // --- API ROUTES END ---
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
