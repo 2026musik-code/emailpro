@@ -118,8 +118,8 @@ app.get('/api/generator/inbox', async (req, res) => {
         'Referer': 'https://generator.email/',
       },
       body: new URLSearchParams({
-        usr: usr,
-        dmn: dmn
+        usr: usr as string,
+        dmn: dmn as string
       })
     });
 
@@ -163,24 +163,32 @@ app.get('/api/generator/inbox', async (req, res) => {
     console.log('Mailbox HTML length:', html.length);
 
     const messages = [];
-    const regex = /<div class="e7m from_div_45g45gg">([\s\S]*?)<\/div>[\s\S]*?<div class="e7m subj_div_45g45gg">([\s\S]*?)<\/div>[\s\S]*?<div class="e7m time_div_45g45gg">([\s\S]*?)<\/div>/gi;
+    const emailRegex = /<div class="e7m from_div_45g45gg">([\s\S]*?)<\/div>[\s\S]*?<div class="e7m subj_div_45g45gg">([\s\S]*?)<\/div>/gi;
     
     let match;
-    let idCounter = 1;
-    while ((match = regex.exec(html)) !== null) {
+    while ((match = emailRegex.exec(html)) !== null) {
+      const from = match[1].replace(/<[^>]*>?/gm, '').trim();
+      const subject = match[2].replace(/<[^>]*>?/gm, '').trim();
       messages.push({
-        id: (idCounter++).toString(),
-        from: match[1].replace(/<[^>]*>?/gm, '').trim(),
-        subject: match[2].replace(/<[^>]*>?/gm, '').trim(),
-        body_preview: match[2].replace(/<[^>]*>?/gm, '').trim()
+        from: from,
+        subject: subject,
+        date: new Date().toLocaleTimeString('id-ID'),
+        id: Buffer.from(from + subject).toString('base64').substring(0, 8)
       });
     }
 
     console.log(`Scraped ${messages.length} messages.`);
-    res.json({ status: 'success', emails: messages });
+    res.json({
+      status: "success",
+      total: messages.length,
+      emails: messages
+    });
   } catch (error: any) {
     console.error('Error in /api/generator/inbox:', error);
-    res.status(500).json({ status: 'error', error: error.message });
+    res.status(500).json({ 
+      status: "error", 
+      message: error.message 
+    });
   }
 });
 

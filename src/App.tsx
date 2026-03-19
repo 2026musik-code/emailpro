@@ -371,10 +371,10 @@ export default function App() {
               id: msg.id,
               from: { address: msg.from, name: msg.from },
               subject: msg.subject,
-              createdAt: new Date().toISOString(),
-              html: msg.body_preview,
-              text: msg.body_preview,
-              intro: msg.body_preview
+              createdAt: msg.date || new Date().toISOString(),
+              html: msg.subject,
+              text: msg.subject,
+              intro: msg.subject
             });
           });
         } else {
