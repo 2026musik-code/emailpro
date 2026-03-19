@@ -342,7 +342,15 @@ export default function App() {
           throw new Error(`Generator.email inbox fetch failed: ${response.status} ${response.statusText}`);
         }
         
+        const contentType = response.headers.get('content-type');
         const text = await response.text();
+        
+        if (!contentType || !contentType.includes('application/json')) {
+          console.error('Received non-JSON response:', text);
+          addLog(`Received non-JSON response from server. Check console for details.`, 'error');
+          throw new Error('Invalid JSON response from server');
+        }
+
         let data;
         try {
           data = JSON.parse(text);

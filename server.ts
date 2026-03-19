@@ -153,6 +153,12 @@ app.get('/api/generator/inbox', async (req, res) => {
 
     const html = await mailboxResponse.text();
     
+    // Check for Cloudflare or 404
+    if (html.includes('Cloudflare') || html.includes('404 Not Found') || html.includes('Error 404')) {
+      console.error('Generator.email returned error page');
+      return res.status(400).json({ email: `${usr}@${dmn}`, total: 0, messages: [], error: 'Blokir/Error' });
+    }
+    
     // Now we need to find the actual message list in this HTML.
     console.log('Mailbox HTML length:', html.length);
 
