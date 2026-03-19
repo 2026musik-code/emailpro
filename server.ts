@@ -1,28 +1,37 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { serveStatic } from "hono/cloudflare-workers";
-import * as cheerio from "cheerio";
 
 const app = new Hono();
 
 // Middleware
 app.use("*", cors());
 
+// Test route to verify worker is running
+app.get("/worker-test", (c) => {
+  return c.text(`Worker is running at ${new Date().toISOString()}`);
+});
+
+// Global Error Handler
+app.onError((err, c) => {
+  console.error(`[Hono Error]: ${err.message}`);
+  return c.json({
+    error: "Internal Server Error",
+    message: err.message,
+  }, 500);
+});
+
 const USER_AGENT = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36';
 
 // --- API ROUTES ---
 const api = new Hono();
 
-// Health check
 api.get("/health", (c) => {
   return c.json({
     status: "ok",
-    environment: c.env?.NODE_ENV || "production",
     timestamp: new Date().toISOString(),
   });
 });
 
-// Proxy routes for generator.email
 api.get("/generator/validate", async (c) => {
   const { usr, dmn } = c.req.query();
   if (!usr || !dmn) return c.json({ error: "Missing parameters" }, 400);
@@ -65,6 +74,7 @@ api.get("/generator/search", async (c) => {
 api.get("/generator/inbox", async (c) => {
   const { usr, dmn } = c.req.query();
   try {
+    const { load } = await import("cheerio");
     const url = `https://generator.email/${dmn}/${usr}`;
     const response = await fetch(url, {
       headers: {
@@ -75,7 +85,7 @@ api.get("/generator/inbox", async (c) => {
     });
 
     const html = await response.text();
-    const $ = cheerio.load(html);
+    const $ = load(html);
     const emails: any[] = [];
 
     $("#email-table .list-group-item-info, #email-table .list-group-item").each((i, el) => {
@@ -95,7 +105,6 @@ api.get("/generator/inbox", async (c) => {
       }
     });
 
-    // Fallbacks
     if (emails.length === 0) {
       $(".e7m.row.msg_list").each((i, el) => {
         const from = $(el).find(".e7m.col-md-3.col-sm-3.col-xs-12").text().trim();
@@ -116,13 +125,14 @@ api.get("/generator/inbox", async (c) => {
 api.get("/generator/message", async (c) => {
   const { usr, dmn, id } = c.req.query();
   try {
+    const { load } = await import("cheerio");
     const url = `https://generator.email/${dmn}/${usr}/${id}`;
     const response = await fetch(url, {
       headers: { "User-Agent": USER_AGENT, "Cookie": `surl=${dmn}/${usr}` },
     });
 
     const htmlContent = await response.text();
-    const $ = cheerio.load(htmlContent);
+    const $ = load(htmlContent);
     const from = $(".e7m.from_name").text().trim() || "Unknown";
     const subject = $(".e7m.subject_name").text().trim() || "No Subject";
     const html = $(".e7m.message_content").html() || $(".e7m.content_msg").html() || "No content";
@@ -138,11 +148,32 @@ api.get("/generator/message", async (c) => {
 
 app.route("/api", api);
 
-// --- STATIC ASSETS (Production) ---
-// Serve static files from Cloudflare KV
-app.get("/assets/*", serveStatic({ root: "./" }));
-app.get("/favicon.ico", serveStatic({ path: "./favicon.ico" }));
-app.get("/", serveStatic({ path: "./index.html" }));
-app.get("*", serveStatic({ path: "./index.html" }));
+// In Cloudflare Workers with [assets] configuration, 
+// Cloudflare will serve static files automatically if no worker route matches.
+// We only handle API routes in the worker.
 
 export default app;
+
+// For Node.js development environment compatibility
+if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production') {
+  const { serve } = await import('@hono/node-server');
+  const { createServer: createViteServer } = await import('vite');
+  
+  const vite = await createViteServer({
+    server: { middlewareMode: true },
+    appType: 'spa'
+  });
+
+  serve({
+    fetch: async (req) => {
+      const url = new URL(req.url);
+      if (url.pathname.startsWith('/api') || url.pathname === '/worker-test') {
+        return app.fetch(req);
+      }
+      return new Response(null, { status: 404 }); 
+    },
+    port: 3000
+  });
+  
+  console.log('Dev server running on http://localhost:3000');
+}
