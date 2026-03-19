@@ -16,8 +16,13 @@ async function startServer() {
 
   // Proxy routes for generator.email
   app.get('/api/generator/validate', async (req, res) => {
+    console.log(`[API] Validate request: ${req.query.usr}@${req.query.dmn}`);
     try {
       const { usr, dmn } = req.query;
+      if (!usr || !dmn) {
+        return res.status(400).json({ error: 'Missing parameters' });
+      }
+
       const response = await fetch('https://generator.email/check_adres_validation3.php', {
         method: 'POST',
         headers: {
@@ -30,13 +35,13 @@ async function startServer() {
       });
       
       const text = await response.text();
+      console.log(`[API] Generator response: ${text.substring(0, 50)}`);
       
-      // Try to parse as JSON, if fails, send as raw status
       try {
         const data = JSON.parse(text);
         res.json(data);
       } catch (e) {
-        res.json({ status: text.trim() || 'error', raw: text });
+        res.json({ status: text.trim().toLowerCase().includes('good') ? 'good' : 'error', raw: text });
       }
     } catch (error: any) {
       console.error('Error in /api/generator/validate:', error.message);

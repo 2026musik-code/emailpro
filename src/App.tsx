@@ -175,6 +175,11 @@ export default function App() {
           throw new Error(`Server error (${res.status}): ${text || 'Empty response'}`);
         }
         
+        // If we get HTML, it means the API route was not found and we got the SPA fallback (index.html)
+        if (text.trim().startsWith('<!doctype html') || text.trim().startsWith('<html')) {
+          throw new Error('API route not found. Please ensure the backend server is running and updated.');
+        }
+        
         let data: any = {};
         try {
           data = text ? JSON.parse(text) : {};
