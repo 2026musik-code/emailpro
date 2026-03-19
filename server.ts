@@ -76,6 +76,166 @@ async function writeToR2(key: string, data: any) {
 }
 
 // API Routes
+app.get('/api/1secmail/inbox', async (req, res) => {
+  try {
+    const { usr, dmn } = req.query;
+    if (!usr || !dmn) return res.status(400).json({ error: 'Missing usr or dmn' });
+    
+    console.log(`Fetching 1secmail inbox for ${usr}@${dmn}`);
+    let response;
+    let retries = 5;
+    const userAgents = [
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0'
+    ];
+
+    while (retries > 0) {
+      try {
+        const ua = userAgents[Math.floor(Math.random() * userAgents.length)];
+        const useExtraHeaders = retries % 2 === 0;
+        const headers: any = {
+          'User-Agent': ua,
+          'Accept': 'application/json, text/javascript, */*; q=0.01',
+          'Accept-Language': 'en-US,en;q=0.9',
+        };
+
+        if (useExtraHeaders) {
+          headers['Referer'] = 'https://1secmail.com/';
+          headers['Sec-Fetch-Dest'] = 'empty';
+          headers['Sec-Fetch-Mode'] = 'cors';
+          headers['Sec-Fetch-Site'] = 'same-origin';
+        }
+
+        response = await fetch(`https://1secmail.com/api/v1/?action=getMessages&login=${usr}&domain=${dmn}`, {
+          headers
+        });
+        
+        if (response.ok) break;
+        
+        if (response.status === 403 || response.status === 429) {
+          console.warn(`1secmail returned ${response.status}, retrying... (${retries} left)`);
+          const delay = (6 - retries) * 2000 + Math.random() * 2000;
+          await new Promise(resolve => setTimeout(resolve, delay));
+          retries--;
+          continue;
+        }
+        break;
+      } catch (e) {
+        retries--;
+        if (retries === 0) throw e;
+        const delay = (6 - retries) * 2000 + Math.random() * 2000;
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+    
+    if (!response || !response.ok) {
+      console.error(`1secmail API error: ${response?.status}`);
+      throw new Error(`1secmail failed: ${response?.status}`);
+    }
+    
+    const messages = await response.json();
+    console.log(`1secmail returned ${Array.isArray(messages) ? messages.length : 'non-array'} messages`);
+    
+    if (!Array.isArray(messages)) {
+      throw new Error('Invalid response from 1secmail API');
+    }
+
+    res.json({
+      status: "success",
+      total: messages.length,
+      emails: messages.map((m: any) => ({
+        id: m.id.toString(),
+        from: m.from,
+        subject: m.subject,
+        date: m.date,
+        body_preview: m.subject
+      }))
+    });
+  } catch (error: any) {
+    console.error('Error in /api/1secmail/inbox:', error);
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
+app.get('/api/1secmail/message', async (req, res) => {
+  try {
+    const { usr, dmn, id } = req.query;
+    if (!usr || !dmn || !id) return res.status(400).json({ error: 'Missing params' });
+    
+    console.log(`Reading 1secmail message ${id} for ${usr}@${dmn}`);
+    let response;
+    let retries = 5;
+    const userAgents = [
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0'
+    ];
+
+    while (retries > 0) {
+      try {
+        const ua = userAgents[Math.floor(Math.random() * userAgents.length)];
+        const useExtraHeaders = retries % 2 === 0;
+        const headers: any = {
+          'User-Agent': ua,
+          'Accept': 'application/json, text/javascript, */*; q=0.01',
+          'Accept-Language': 'en-US,en;q=0.9',
+        };
+
+        if (useExtraHeaders) {
+          headers['Referer'] = 'https://1secmail.com/';
+          headers['Sec-Fetch-Dest'] = 'empty';
+          headers['Sec-Fetch-Mode'] = 'cors';
+          headers['Sec-Fetch-Site'] = 'same-origin';
+        }
+
+        response = await fetch(`https://1secmail.com/api/v1/?action=readMessage&login=${usr}&domain=${dmn}&id=${id}`, {
+          headers
+        });
+        
+        if (response.ok) break;
+        
+        if (response.status === 403 || response.status === 429) {
+          console.warn(`1secmail returned ${response.status}, retrying... (${retries} left)`);
+          const delay = (6 - retries) * 2000 + Math.random() * 2000;
+          await new Promise(resolve => setTimeout(resolve, delay));
+          retries--;
+          continue;
+        }
+        break;
+      } catch (e) {
+        retries--;
+        if (retries === 0) throw e;
+        const delay = (6 - retries) * 2000 + Math.random() * 2000;
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+    
+    if (!response || !response.ok) {
+      console.error(`1secmail API error: ${response?.status}`);
+      throw new Error(`1secmail failed: ${response?.status}`);
+    }
+    
+    const data = await response.json();
+    res.json({
+      status: "success",
+      data: {
+        id: data.id.toString(),
+        from: data.from,
+        subject: data.subject,
+        date: data.date,
+        html: data.htmlBody || data.body,
+        text: data.body
+      }
+    });
+  } catch (error: any) {
+    console.error('Error in /api/1secmail/message:', error);
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
 app.post('/api/generator/validate', async (req, res) => {
   try {
     const { usr, dmn } = req.body;

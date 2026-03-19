@@ -33,7 +33,7 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
-  const [tool, setTool] = useState<'mail.tm' | 'generator.email'>('mail.tm');
+  const [tool, setTool] = useState<'mail.tm' | 'generator.email' | '1secmail'>('mail.tm');
   const [generatorDomain, setGeneratorDomain] = useState('g-mail.kr');
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [showLogs, setShowLogs] = useState(false);
@@ -42,12 +42,14 @@ export default function App() {
   const [isDomainDropdownOpen, setIsDomainDropdownOpen] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [secmailDomain, setSecmailDomain] = useState('1secmail.com');
 
   const VIP_DOMAINS = [
     { category: '👑 ELITE', domains: [{ name: 'googl.win', uptime: '821d' }, { name: 'maildoc.org', uptime: '159d' }, { name: 'capcutpro.click', uptime: '120d' }, { name: 'g-mail.kr', uptime: '113d' }, { name: 'jymz.xyz', uptime: '72d' }] },
     { category: '⚡ FAST OTP', domains: [{ name: 'id-mail.kr' }, { name: 'getcode1.com' }, { name: 'codemail1.com' }, { name: '681mail.com' }, { name: 'katanajp.shop' }, { name: 'my-mail.kr' }, { name: 'mail-id.kr' }, { name: 'kr-mail.kr' }, { name: 'getcode.com' }] },
     { category: '🌏 ASIA & INDO', domains: [{ name: 'akunku.shop' }, { name: 'berkahfb.com' }, { name: 'chatgptku.pro' }, { name: 'autoxugiare.com' }, { name: 'clonechatluong.net' }] },
-    { category: '🌐 GLOBAL', domains: [{ name: 'travelistaworld.com' }, { name: 'xcvv.xyz' }, { name: 'gglorytogod.com' }, { name: 'gmail2.gq' }, { name: '11jac.com' }, { name: 'btcmod.com' }, { name: 'gapura.cloud' }, { name: 'nusantara.xyz' }] }
+    { category: '🌐 GLOBAL', domains: [{ name: 'travelistaworld.com' }, { name: 'xcvv.xyz' }, { name: 'gglorytogod.com' }, { name: 'gmail2.gq' }, { name: '11jac.com' }, { name: 'btcmod.com' }, { name: 'gapura.cloud' }, { name: 'nusantara.xyz' }] },
+    { category: '📨 1SECMAIL', domains: [{ name: '1secmail.com' }, { name: '1secmail.org' }, { name: '1secmail.net' }, { name: 'wwwnew.com' }, { name: 'esiix.com' }, { name: 'xojxe.com' }, { name: 'yertf.com' }, { name: 'vjuum.com' }, { name: 'laafd.com' }, { name: 'txmrv.com' }] }
   ];
 
   const addLog = (message: string, type: 'info' | 'error' | 'success' = 'info') => {
@@ -299,6 +301,31 @@ export default function App() {
         setSavedAccounts(updatedAccounts);
         localStorage.setItem('saved_accounts', JSON.stringify(updatedAccounts));
         syncAccountsToR2(updatedAccounts);
+      } else if (tool === '1secmail') {
+        const usr = username || Math.random().toString(36).substring(2, 10);
+        const dmn = secmailDomain || '1secmail.com';
+        
+        const newAccount = {
+          id: `sec-${Date.now()}`,
+          address: `${usr}@${dmn}`,
+          provider: '1secmail',
+          usr,
+          dmn
+        };
+        
+        addLog(`Creating 1secmail account: ${newAccount.address}`, 'success');
+        
+        setAccount(newAccount);
+        setToken('1secmail-token'); // dummy token
+        
+        localStorage.setItem('mail_account', JSON.stringify(newAccount));
+        localStorage.setItem('mail_token', '1secmail-token');
+        
+        const newAcc = { address: newAccount.address, token: '1secmail-token', id: newAccount.id, provider: '1secmail', usr, dmn };
+        const updatedAccounts = [newAcc, ...savedAccounts.filter(a => a.id !== newAccount.id)];
+        setSavedAccounts(updatedAccounts);
+        localStorage.setItem('saved_accounts', JSON.stringify(updatedAccounts));
+        syncAccountsToR2(updatedAccounts);
       }
     } catch (err: any) {
       addLog(`Error: ${err.message}`, 'error');
@@ -385,6 +412,39 @@ export default function App() {
         if (messagesList.length > 0 && acc.id) {
           syncEmailsToR2(acc.id, messagesList);
         }
+      } else if (acc.provider === '1secmail') {
+        addLog(`Fetching inbox for 1secmail: ${usr}@${dmn}`, 'info');
+        const response = await fetchWithRetry(`/api/1secmail/inbox?usr=${usr}&dmn=${dmn}`, {});
+        
+        if (!response.ok) {
+          throw new Error(`1secmail inbox fetch failed: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        const messagesList: any[] = [];
+        
+        if (data.status === 'success' && data.emails && data.emails.length > 0) {
+          addLog(`Found ${data.emails.length} messages in 1secmail inbox`, 'success');
+          
+          data.emails.forEach((msg: any) => {
+            messagesList.push({
+              id: msg.id,
+              from: { address: msg.from, name: msg.from },
+              subject: msg.subject,
+              createdAt: msg.date || new Date().toISOString(),
+              html: msg.subject,
+              text: msg.subject,
+              intro: msg.subject
+            });
+          });
+        } else {
+          addLog(`No messages found in 1secmail inbox`, 'info');
+        }
+        
+        setMessages(messagesList);
+        if (messagesList.length > 0 && acc.id) {
+          syncEmailsToR2(acc.id, messagesList);
+        }
       } else {
         addLog(`Fetching inbox for mail.tm`, 'info');
         const res = await fetchWithRetry(`${API_BASE}/messages`, {
@@ -411,7 +471,7 @@ export default function App() {
 
   // Polling messages
   useEffect(() => {
-    if (token || account?.provider === 'generator.email') {
+    if (token || account?.provider === 'generator.email' || account?.provider === '1secmail') {
       fetchMessages();
       const interval = setInterval(fetchMessages, 10000);
       return () => clearInterval(interval);
@@ -428,6 +488,17 @@ export default function App() {
         const msg = messages.find(m => m.id === id);
         if (msg) {
           setSelectedMessage({ ...msg, loading: false });
+        }
+      } else if (account?.provider === '1secmail') {
+        const usr = account.usr || account.address?.split('@')[0];
+        const dmn = account.dmn || account.address?.split('@')[1];
+        
+        const res = await fetch(`/api/1secmail/message?usr=${usr}&dmn=${dmn}&id=${id}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status === 'success') {
+            setSelectedMessage({ ...data.data, loading: false });
+          }
         }
       } else {
         const res = await fetch(`${API_BASE}/messages/${id}`, {
@@ -567,6 +638,7 @@ export default function App() {
             >
               <option value="mail.tm">Mail.tm</option>
               <option value="generator.email">Generator.email</option>
+              <option value="1secmail">1secmail.com</option>
             </select>
             <ChevronDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400 absolute right-2.5 sm:right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
@@ -617,7 +689,7 @@ export default function App() {
                         onChange={(e) => setSelectedDomain(e.target.value)}
                         className="w-full bg-black border-2 border-purple-600 rounded-xl px-4 py-3.5 text-white appearance-none focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all text-base"
                       >
-                        {VIP_DOMAINS.map((group) => (
+                        {VIP_DOMAINS.filter(c => c.category !== '📨 1SECMAIL').map((group) => (
                           <optgroup key={group.category} label={group.category} className="bg-black text-purple-400 font-bold">
                             {group.domains.map((d) => (
                               <option key={d.name} value={d.name} className="bg-black text-white">
@@ -628,6 +700,26 @@ export default function App() {
                         ))}
                       </select>
                       <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-amber-500">
+                        <ChevronDown className="w-5 h-5" />
+                      </div>
+                    </div>
+                  </div>
+                ) : tool === '1secmail' ? (
+                  <div>
+                    <label className="block text-xs sm:text-sm font-semibold text-indigo-400 mb-2 uppercase tracking-wider">Domain (1secmail)</label>
+                    <div className="relative">
+                      <select 
+                        value={secmailDomain}
+                        onChange={(e) => setSecmailDomain(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-slate-100 appearance-none focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all text-base"
+                      >
+                        {VIP_DOMAINS.find(c => c.category === '📨 1SECMAIL')?.domains.map((d) => (
+                          <option key={d.name} value={d.name}>
+                            {d.name}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
                         <ChevronDown className="w-5 h-5" />
                       </div>
                     </div>
@@ -661,7 +753,7 @@ export default function App() {
 
                       {isDomainDropdownOpen && (
                         <div className="absolute z-50 w-full mt-2 bg-[#111] border border-white/10 rounded-xl shadow-2xl max-h-64 overflow-y-auto custom-scrollbar">
-                          {VIP_DOMAINS.map((category, idx) => (
+                          {VIP_DOMAINS.filter(c => c.category !== '📨 1SECMAIL').map((category, idx) => (
                             <div key={idx} className="py-2">
                               <div className="px-4 py-1.5 text-[10px] sm:text-xs font-bold text-indigo-400/80 uppercase tracking-wider bg-white/5 sticky top-0 backdrop-blur-md z-10">
                                 {category.category}
@@ -698,7 +790,7 @@ export default function App() {
 
                 <button 
                   type="submit" 
-                  disabled={loading || !username || (tool === 'mail.tm' && !selectedDomain) || (tool === 'generator.email' && !generatorDomain)}
+                  disabled={loading || !username || (tool === 'mail.tm' && !selectedDomain) || (tool === 'generator.email' && !generatorDomain) || (tool === '1secmail' && !secmailDomain)}
                   className="w-full bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25 font-semibold text-base py-4 px-4 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-6 active:scale-[0.98]"
                 >
                   {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Buat Email Sekarang'}
