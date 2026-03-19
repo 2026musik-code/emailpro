@@ -14,8 +14,13 @@ async function startServer() {
 
   const USER_AGENT = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36';
 
+  // Health check
+  app.get(['/api/health', '/api/health/'], (req, res) => {
+    res.json({ status: "ok", environment: process.env.NODE_ENV || 'development' });
+  });
+
   // Proxy routes for generator.email
-  app.get('/api/generator/validate', async (req, res) => {
+  app.get(['/api/generator/validate', '/api/generator/validate/'], async (req, res) => {
     console.log(`[API] Validate request: ${req.query.usr}@${req.query.dmn}`);
     try {
       const { usr, dmn } = req.query;
@@ -49,7 +54,7 @@ async function startServer() {
     }
   });
 
-  app.get('/api/generator/search', async (req, res) => {
+  app.get(['/api/generator/search', '/api/generator/search/'], async (req, res) => {
     try {
       const { key } = req.query;
       const response = await fetch(`https://generator.email/search.php?key=${key}`, {
@@ -66,7 +71,7 @@ async function startServer() {
     }
   });
 
-  app.get('/api/generator/inbox', async (req, res) => {
+  app.get(['/api/generator/inbox', '/api/generator/inbox/'], async (req, res) => {
     try {
       const { usr, dmn } = req.query;
       const url = `https://generator.email/${dmn}/${usr}`;
@@ -149,7 +154,7 @@ async function startServer() {
     }
   });
 
-  app.get('/api/generator/message', async (req, res) => {
+  app.get(['/api/generator/message', '/api/generator/message/'], async (req, res) => {
     try {
       const { usr, dmn, id } = req.query;
       const url = `https://generator.email/${dmn}/${usr}/${id}`;

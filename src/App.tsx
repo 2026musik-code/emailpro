@@ -164,7 +164,9 @@ export default function App() {
         const address = `${usr}@${dmn}`;
         
         // Validate via proxy
-        const res = await fetch(`/api/generator/validate?usr=${usr}&dmn=${dmn}`, {
+        const apiUrl = `/api/generator/validate?usr=${usr}&dmn=${dmn}`;
+        console.log(`Fetching from: ${apiUrl}`);
+        const res = await fetch(apiUrl, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' }
         });
