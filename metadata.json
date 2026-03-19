@@ -1,5 +1,5 @@
 {
-  "name": "EMAIL PRO",
-  "description": "Temporary Web Mail application",
+  "name": "Email Generator",
+  "description": "Fast disposable temporary email generator with multiple providers.",
   "requestFramePermissions": []
 }

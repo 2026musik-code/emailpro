@@ -1,1079 +1,632 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { 
+  Mail, 
+  RefreshCw, 
+  Copy, 
+  Trash2, 
+  CheckCircle2, 
+  AlertCircle, 
+  ChevronRight, 
+  Inbox, 
+  ShieldCheck, 
+  Zap,
+  Clock,
+  ExternalLink,
+  Plus,
+  ArrowLeft,
+  Loader2,
+  Bell,
+  Volume2,
+  VolumeX
+} from 'lucide-react';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Copy, RefreshCw, Mail, Inbox, X, Loader2, LogOut, ChevronDown, Menu, Trash2, Languages, Terminal } from 'lucide-react';
-import { GoogleGenAI } from '@google/genai';
-
-const API_BASE = 'https://api.mail.tm';
-
-interface LogEntry {
-  id: string;
-  time: string;
-  message: string;
-  type: 'info' | 'error' | 'success';
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
 }
 
+// --- Types ---
+interface EmailMessage {
+  id: string;
+  from: string;
+  subject: string;
+  date: string;
+  body_preview?: string;
+  html?: string;
+  text?: string;
+}
+
+interface Account {
+  address: string;
+  token: string;
+  id: string;
+  provider: 'mail.tm' | 'generator.email' | '1secmail';
+  usr?: string;
+  dmn?: string;
+}
+
+// --- Constants ---
+const MAIL_TM_API = 'https://api.mail.tm';
+const SECMAIL_API = 'https://www.1secmail.com/api/v1/';
+
 export default function App() {
-  const [domains, setDomains] = useState<any[]>([]);
-  const [selectedDomain, setSelectedDomain] = useState('');
-  const [username, setUsername] = useState('');
-  const [account, setAccount] = useState<any>(null);
-  const [token, setToken] = useState('');
-  const [savedAccounts, setSavedAccounts] = useState<any[]>([]);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [messages, setMessages] = useState<any[]>([]);
-  const [selectedMessage, setSelectedMessage] = useState<any>(null);
+  const [account, setAccount] = useState<Account | null>(null);
+  const [emails, setEmails] = useState<EmailMessage[]>([]);
+  const [selectedEmail, setSelectedEmail] = useState<EmailMessage | null>(null);
   const [loading, setLoading] = useState(false);
-  const [messageLoading, setMessageLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [fetchingEmails, setFetchingEmails] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [logs, setLogs] = useState<{ msg: string; type: 'info' | 'success' | 'error' }[]>([]);
   const [copied, setCopied] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [isTranslating, setIsTranslating] = useState(false);
-  const [showTranslation, setShowTranslation] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
   const [tool, setTool] = useState<'mail.tm' | 'generator.email' | '1secmail'>('mail.tm');
-  const [generatorDomain, setGeneratorDomain] = useState('g-mail.kr');
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [showLogs, setShowLogs] = useState(false);
-  const [domainStatuses, setDomainStatuses] = useState<Record<string, boolean>>({});
-  const [checkingDomains, setCheckingDomains] = useState(false);
-  const [isDomainDropdownOpen, setIsDomainDropdownOpen] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const [secmailDomain, setSecmailDomain] = useState('1secmail.com');
+  
+  // Custom username/domain for 1secmail or generator.email
+  const [username, setUsername] = useState('');
+  const [selectedDomain, setSelectedDomain] = useState('');
+  const [domains, setDomains] = useState<string[]>([]);
+  
+  const logEndRef = useRef<HTMLDivElement>(null);
 
-  const VIP_DOMAINS = [
-    { category: '👑 ELITE', domains: [{ name: 'googl.win', uptime: '821d' }, { name: 'maildoc.org', uptime: '159d' }, { name: 'capcutpro.click', uptime: '120d' }, { name: 'g-mail.kr', uptime: '113d' }, { name: 'jymz.xyz', uptime: '72d' }] },
-    { category: '⚡ FAST OTP', domains: [{ name: 'id-mail.kr' }, { name: 'getcode1.com' }, { name: 'codemail1.com' }, { name: '681mail.com' }, { name: 'katanajp.shop' }, { name: 'my-mail.kr' }, { name: 'mail-id.kr' }, { name: 'kr-mail.kr' }, { name: 'getcode.com' }] },
-    { category: '🌏 ASIA & INDO', domains: [{ name: 'akunku.shop' }, { name: 'berkahfb.com' }, { name: 'chatgptku.pro' }, { name: 'autoxugiare.com' }, { name: 'clonechatluong.net' }] },
-    { category: '🌐 GLOBAL', domains: [{ name: 'travelistaworld.com' }, { name: 'xcvv.xyz' }, { name: 'gglorytogod.com' }, { name: 'gmail2.gq' }, { name: '11jac.com' }, { name: 'btcmod.com' }, { name: 'gapura.cloud' }, { name: 'nusantara.xyz' }] },
-    { category: '📨 1SECMAIL', domains: [{ name: '1secmail.com' }, { name: '1secmail.org' }, { name: '1secmail.net' }, { name: 'wwwnew.com' }, { name: 'esiix.com' }, { name: 'xojxe.com' }, { name: 'yertf.com' }, { name: 'vjuum.com' }, { name: 'laafd.com' }, { name: 'txmrv.com' }] }
-  ];
-
-  const addLog = (message: string, type: 'info' | 'error' | 'success' = 'info') => {
-    setLogs(prev => [{
-      id: Math.random().toString(36).substring(2, 9),
-      time: new Date().toLocaleTimeString(),
-      message,
-      type
-    }, ...prev].slice(0, 50));
-  };
-
-  // Load persisted data
-  useEffect(() => {
-    const savedAccount = localStorage.getItem('mail_account');
-    const savedToken = localStorage.getItem('mail_token');
-    
-    // Fetch accounts from R2 backend
-    fetch('/api/accounts')
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data) && data.length > 0) {
-          setSavedAccounts(data);
-          localStorage.setItem('saved_accounts', JSON.stringify(data));
-        } else {
-          // Fallback to local storage if R2 is empty or not configured
-          const savedAccs = localStorage.getItem('saved_accounts');
-          if (savedAccs) {
-            setSavedAccounts(JSON.parse(savedAccs));
-          } else if (savedAccount && savedToken) {
-            const acc = JSON.parse(savedAccount);
-            const accounts = [{ address: acc.address, token: savedToken, id: acc.id }];
-            setSavedAccounts(accounts);
-            localStorage.setItem('saved_accounts', JSON.stringify(accounts));
-            syncAccountsToR2(accounts);
-          }
-        }
-      })
-      .catch(err => {
-        console.error('Failed to fetch accounts from R2', err);
-        const savedAccs = localStorage.getItem('saved_accounts');
-        if (savedAccs) setSavedAccounts(JSON.parse(savedAccs));
-      });
-
-    if (savedAccount && savedToken) {
-      setAccount(JSON.parse(savedAccount));
-      setToken(savedToken);
-    }
-    fetchDomains();
-  }, []);
-
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (autoRefresh && account) {
-      interval = setInterval(() => {
-        fetchMessages(account);
-      }, 5000);
-    }
-    return () => clearInterval(interval);
-  }, [autoRefresh, account]);
-
-  const highlightOTP = (text: string) => {
-    return text.replace(/\b\d{6}\b/g, (match) => {
-      navigator.clipboard.writeText(match);
-      return `<span class="text-4xl font-bold text-green-400 bg-black p-2 rounded-lg border-2 border-green-400 shadow-[0_0_10px_#4ade80]">${match}</span>`;
-    });
-  };
-
-  const syncAccountsToR2 = async (accounts: any[]) => {
-    try {
-      await fetch('/api/accounts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accounts })
-      });
-    } catch (err) {
-      console.error('Failed to sync accounts to R2', err);
-    }
+  const addLog = (msg: string, type: 'info' | 'success' | 'error' = 'info') => {
+    setLogs(prev => [...prev, { msg, type }]);
   };
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsDomainDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [logs]);
 
-  useEffect(() => {
-    if (tool === 'generator.email' && Object.keys(domainStatuses).length === 0 && !checkingDomains) {
-      checkGeneratorDomains();
-    }
-  }, [tool]);
-
-  const checkGeneratorDomains = async () => {
-    setCheckingDomains(true);
-    const allDomains = VIP_DOMAINS.flatMap(c => c.domains);
-    
-    const checkDomain = async (domain: string) => {
-      try {
-        const res = await fetch('/api/generator/validate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ usr: 'testchk' + Math.floor(Math.random()*1000), dmn: domain })
-        });
-        const data = await res.json();
-        const isOnline = data.uptime !== 'offline';
-        setDomainStatuses(prev => ({ ...prev, [domain]: isOnline }));
-      } catch {
-        setDomainStatuses(prev => ({ ...prev, [domain]: false }));
-      }
-    };
-
-    // Process in batches of 3 to avoid overwhelming the proxy
-    for (let i = 0; i < allDomains.length; i += 3) {
-      const batch = allDomains.slice(i, i + 3);
-      await Promise.all(batch.map(d => checkDomain(d.name)));
-    }
-    setCheckingDomains(false);
-  };
-
-  const syncEmailsToR2 = async (accountId: string, emails: any[]) => {
-    try {
-      await fetch(`/api/emails/${accountId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emails })
-      });
-    } catch (err) {
-      console.error('Failed to sync emails to R2', err);
-    }
-  };
-
-  // Fetch domains
+  // --- API Helpers ---
   const fetchDomains = async () => {
     try {
-      const res = await fetch(`${API_BASE}/domains`);
-      const data = await res.json();
-      if (data['hydra:member']) {
-        setDomains(data['hydra:member']);
-        if (data['hydra:member'].length > 0) {
-          setSelectedDomain(data['hydra:member'][0].domain);
-        }
+      if (tool === 'mail.tm') {
+        const res = await fetch(`${MAIL_TM_API}/domains`);
+        const data = await res.json();
+        setDomains(data['hydra:member'].map((d: any) => d.domain));
+        setSelectedDomain(data['hydra:member'][0]?.domain || '');
+      } else if (tool === '1secmail') {
+        const res = await fetch(`${SECMAIL_API}?action=getDomainList`);
+        const data = await res.json();
+        setDomains(data);
+        setSelectedDomain(data[0] || '');
+      } else {
+        // Mock domains for generator.email proxy
+        setDomains([
+          'jymz.xyz', 'tako.skin', 'capcutpro.click', 'clonetrust.com', 
+          'sparkletoc.com', 'theweifamily.icu', 'maildoc.org', 'xuseca.cloud',
+          'googl.win', 'thip-like.com', 'c-tta.top', 'nowtopzen.com',
+          'ebarg.net', 'btcmod.com', 'tmxttvmail.com'
+        ]);
+        setSelectedDomain('jymz.xyz');
       }
     } catch (err) {
-      console.error('Failed to fetch domains', err);
+      addLog('Failed to fetch domains', 'error');
     }
   };
 
-  // Generate Email
-  const handleGenerate = async (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    fetchDomains();
+  }, [tool]);
+
+  const generateAccount = async () => {
     setLoading(true);
-    setError('');
+    setError(null);
+    addLog(`Generating ${tool} account...`, 'info');
     
     try {
       if (tool === 'mail.tm') {
-        if (!username || !selectedDomain) return;
+        const domain = selectedDomain || domains[0];
+        const usr = username || Math.random().toString(36).substring(7);
+        const pwd = Math.random().toString(36).substring(7);
+        const address = `${usr}@${domain}`;
         
-        const address = `${username}@${selectedDomain}`;
-        const password = Math.random().toString(36).slice(-8) + 'A1!'; // Random password
-        
-        addLog(`Creating mail.tm account: ${address}`, 'info');
-        
-        // Create account
-        const accRes = await fetch(`${API_BASE}/accounts`, {
+        const res = await fetch(`${MAIL_TM_API}/accounts`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ address, password })
+          body: JSON.stringify({ address, password: pwd })
         });
         
-        if (!accRes.ok) {
-          const errData = await accRes.json();
-          addLog(`mail.tm error: ${errData.message}`, 'error');
-          throw new Error(errData.message || 'Gagal membuat akun');
-        }
-        
-        const accData = await accRes.json();
-        addLog(`mail.tm account created: ${accData.id}`, 'success');
+        if (!res.ok) throw new Error('Failed to create account');
+        const data = await res.json();
         
         // Get token
-        const tokenRes = await fetch(`${API_BASE}/token`, {
+        const tokenRes = await fetch(`${MAIL_TM_API}/token`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ address, password })
+          body: JSON.stringify({ address, password: pwd })
         });
-        
-        if (!tokenRes.ok) {
-          addLog('Failed to get mail.tm token', 'error');
-          throw new Error('Gagal mendapatkan token');
-        }
-        
         const tokenData = await tokenRes.json();
-        addLog('mail.tm token received', 'success');
         
-        const newAccount = { ...accData, provider: 'mail.tm' };
-        setAccount(newAccount);
-        setToken(tokenData.token);
+        const newAcc: Account = { address, token: tokenData.token, id: data.id, provider: 'mail.tm' };
+        setAccount(newAcc);
+        addLog(`Account created: ${address}`, 'success');
+      } else if (tool === '1secmail') {
+        const usr = username || Math.random().toString(36).substring(7);
+        const dmn = selectedDomain || domains[0];
+        const address = `${usr}@${dmn}`;
+        const newAcc: Account = { address, token: '1secmail-token', id: usr, provider: '1secmail', usr, dmn };
+        setAccount(newAcc);
+        addLog(`1secmail account set: ${address}`, 'success');
+      } else {
+        // generator.email proxy
+        const usr = username || 'user' + Math.floor(Math.random() * 10000);
+        const dmn = selectedDomain || 'jymz.xyz';
+        const address = `${usr}@${dmn}`;
         
-        localStorage.setItem('mail_account', JSON.stringify(newAccount));
-        localStorage.setItem('mail_token', tokenData.token);
-        
-        const newAcc = { address: accData.address, token: tokenData.token, id: accData.id, provider: 'mail.tm' };
-        const updatedAccounts = [newAcc, ...savedAccounts.filter(a => a.id !== accData.id)];
-        setSavedAccounts(updatedAccounts);
-        localStorage.setItem('saved_accounts', JSON.stringify(updatedAccounts));
-        syncAccountsToR2(updatedAccounts);
-      } else if (tool === 'generator.email') {
-        const usr = username || Math.random().toString(36).substring(2, 10);
-        const dmn = generatorDomain || 'g-mail.kr';
-        
-        addLog(`Validating generator.email: ${usr}@${dmn}`, 'info');
-        
-        const response = await fetch('/api/generator/validate', {
+        // Validate via proxy
+        const res = await fetch('/api/generator/validate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ usr, dmn })
         });
+        const data = await res.json();
         
-        if (!response.ok) {
-          addLog(`HTTP Error: ${response.status}`, 'error');
-          // Don't throw, just proceed
+        if (data.status === 'good') {
+          const newAcc: Account = { address, token: 'gen-token', id: usr, provider: 'generator.email', usr, dmn };
+          setAccount(newAcc);
+          addLog(`Generator.email approved: ${address}`, 'success');
         } else {
-          const data = await response.json();
-          addLog(`Response: ${JSON.stringify(data)}`, data.status === 'bad' ? 'error' : 'success');
-          
-          if (data.status === 'bad' && data.uptime !== 'offline') {
-            throw new Error(`Generator.email error: ${JSON.stringify(data)}`);
-          }
+          throw new Error('Domain not supported by Generator.email');
         }
-        
-        const newAccount = {
-          id: `gen-${Date.now()}`,
-          address: `${usr}@${dmn}`,
-          provider: 'generator.email',
-          usr,
-          dmn
-        };
-        
-        setAccount(newAccount);
-        setToken('generator-token'); // dummy token
-        
-        localStorage.setItem('mail_account', JSON.stringify(newAccount));
-        localStorage.setItem('mail_token', 'generator-token');
-        
-        const newAcc = { address: newAccount.address, token: 'generator-token', id: newAccount.id, provider: 'generator.email', usr, dmn };
-        const updatedAccounts = [newAcc, ...savedAccounts.filter(a => a.id !== newAccount.id)];
-        setSavedAccounts(updatedAccounts);
-        localStorage.setItem('saved_accounts', JSON.stringify(updatedAccounts));
-        syncAccountsToR2(updatedAccounts);
-      } else if (tool === '1secmail') {
-        const usr = username || Math.random().toString(36).substring(2, 10);
-        const dmn = secmailDomain || '1secmail.com';
-        
-        const newAccount = {
-          id: `sec-${Date.now()}`,
-          address: `${usr}@${dmn}`,
-          provider: '1secmail',
-          usr,
-          dmn
-        };
-        
-        addLog(`Creating 1secmail account: ${newAccount.address}`, 'success');
-        
-        setAccount(newAccount);
-        setToken('1secmail-token'); // dummy token
-        
-        localStorage.setItem('mail_account', JSON.stringify(newAccount));
-        localStorage.setItem('mail_token', '1secmail-token');
-        
-        const newAcc = { address: newAccount.address, token: '1secmail-token', id: newAccount.id, provider: '1secmail', usr, dmn };
-        const updatedAccounts = [newAcc, ...savedAccounts.filter(a => a.id !== newAccount.id)];
-        setSavedAccounts(updatedAccounts);
-        localStorage.setItem('saved_accounts', JSON.stringify(updatedAccounts));
-        syncAccountsToR2(updatedAccounts);
       }
     } catch (err: any) {
-      addLog(`Error: ${err.message}`, 'error');
       setError(err.message);
+      addLog(err.message, 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  // Fetch messages
-  const fetchMessages = async (acc = account) => {
-    if (!acc) return;
+  const fetchEmails = useCallback(async () => {
+    if (!account) return;
+    setFetchingEmails(true);
     
-    // Ensure we use the correct usr and dmn for generator.email
-    const usr = acc.usr || acc.address?.split('@')[0];
-    const dmn = acc.dmn || acc.address?.split('@')[1];
-    
-    const currentToken = acc.token || token;
-    if (!currentToken && acc.provider !== 'generator.email') return;
-    
-    setRefreshing(true);
-    
-    const fetchWithRetry = async (url: string, options: any, retries = 3): Promise<Response> => {
-      for (let i = 0; i < retries; i++) {
-        try {
-          return await fetch(url, options);
-        } catch (err) {
-          if (i === retries - 1) throw err;
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-      }
-      throw new Error('Failed to fetch after retries');
-    };
-
     try {
-      if (acc.provider === 'generator.email') {
-        addLog(`Fetching inbox for generator.email: ${usr}@${dmn}`, 'info');
-        const response = await fetchWithRetry(`/api/generator/inbox?usr=${usr}&dmn=${dmn}`, {});
-        
-        if (!response.ok) {
-          throw new Error(`Generator.email inbox fetch failed: ${response.status} ${response.statusText}`);
-        }
-        
-        const contentType = response.headers.get('content-type');
-        const text = await response.text();
-        
-        if (!contentType || !contentType.includes('application/json')) {
-          console.error('Received non-JSON response:', text);
-          addLog(`Received non-JSON response from server. Check console for details.`, 'error');
-          throw new Error('Invalid JSON response from server');
-        }
-
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch (e) {
-          addLog(`Failed to parse JSON from generator.email: ${text.substring(0, 50)}...`, 'error');
-          throw new Error('Invalid JSON response from server');
-        }
-        
-        addLog(`Generator.email response: ${JSON.stringify(data).substring(0, 200)}`, 'info');
-        
-        const messagesList: any[] = [];
-        
-        if (data.status === 'success' && data.emails && data.emails.length > 0) {
-          addLog(`Found ${data.emails.length} messages in generator.email inbox`, 'success');
-          
-          data.emails.forEach((msg: any) => {
-            messagesList.push({
-              id: msg.id,
-              from: { address: msg.from, name: msg.from },
-              subject: msg.subject,
-              createdAt: msg.date || new Date().toISOString(),
-              html: msg.subject,
-              text: msg.subject,
-              intro: msg.subject
-            });
-          });
-        } else {
-          addLog(`No messages found in generator.email inbox`, 'info');
-        }
-        
-        setMessages(messagesList);
-        if (messagesList.length > 0 && acc.id) {
-          syncEmailsToR2(acc.id, messagesList);
-        }
-      } else if (acc.provider === '1secmail') {
-        addLog(`Fetching inbox for 1secmail: ${usr}@${dmn}`, 'info');
-        const response = await fetchWithRetry(`/api/1secmail/inbox?usr=${usr}&dmn=${dmn}`, {});
-        
-        if (!response.ok) {
-          throw new Error(`1secmail inbox fetch failed: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        const messagesList: any[] = [];
-        
-        if (data.status === 'success' && data.emails && data.emails.length > 0) {
-          addLog(`Found ${data.emails.length} messages in 1secmail inbox`, 'success');
-          
-          data.emails.forEach((msg: any) => {
-            messagesList.push({
-              id: msg.id,
-              from: { address: msg.from, name: msg.from },
-              subject: msg.subject,
-              createdAt: msg.date || new Date().toISOString(),
-              html: msg.subject,
-              text: msg.subject,
-              intro: msg.subject
-            });
-          });
-        } else {
-          addLog(`No messages found in 1secmail inbox`, 'info');
-        }
-        
-        setMessages(messagesList);
-        if (messagesList.length > 0 && acc.id) {
-          syncEmailsToR2(acc.id, messagesList);
-        }
-      } else {
-        addLog(`Fetching inbox for mail.tm`, 'info');
-        const res = await fetchWithRetry(`${API_BASE}/messages`, {
-          headers: { Authorization: `Bearer ${currentToken}` }
+      if (account.provider === 'mail.tm') {
+        const res = await fetch(`${MAIL_TM_API}/messages`, {
+          headers: { 'Authorization': `Bearer ${account.token}` }
         });
-        if (res.ok) {
-          const data = await res.json();
-          addLog(`Found ${data['hydra:member']?.length || 0} messages in mail.tm`, 'success');
-          setMessages(data['hydra:member'] || []);
-          if (data['hydra:member'] && data['hydra:member'].length > 0 && acc.id) {
-            syncEmailsToR2(acc.id, data['hydra:member']);
-          }
-        } else {
-          throw new Error(`Mail.tm inbox fetch failed: ${res.status} ${res.statusText}`);
+        const data = await res.json();
+        const msgs = data['hydra:member'].map((m: any) => ({
+          id: m.id,
+          from: m.from.address,
+          subject: m.subject,
+          date: new Date(m.createdAt).toLocaleString(),
+          body_preview: m.intro
+        }));
+        setEmails(msgs);
+        if (msgs.length > emails.length && soundEnabled) {
+          new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3').play().catch(() => {});
         }
-      }
-    } catch (err: any) {
-      addLog(`Fetch messages error: ${err.message}`, 'error');
-      console.error('Failed to fetch messages', err);
-    } finally {
-      setTimeout(() => setRefreshing(false), 500);
-    }
-  };
-
-  // Polling messages
-  useEffect(() => {
-    if (token || account?.provider === 'generator.email' || account?.provider === '1secmail') {
-      fetchMessages();
-      const interval = setInterval(fetchMessages, 10000);
-      return () => clearInterval(interval);
-    }
-  }, [token, account]);
-
-  // Read message
-  const readMessage = async (id: string) => {
-    setMessageLoading(true);
-    setSelectedMessage({ id, loading: true });
-    setShowTranslation(false);
-    try {
-      if (account?.provider === 'generator.email') {
-        const msg = messages.find(m => m.id === id);
-        if (msg) {
-          setSelectedMessage({ ...msg, loading: false });
-        }
-      } else if (account?.provider === '1secmail') {
-        const usr = account.usr || account.address?.split('@')[0];
-        const dmn = account.dmn || account.address?.split('@')[1];
-        
-        const res = await fetch(`/api/1secmail/message?usr=${usr}&dmn=${dmn}&id=${id}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.status === 'success') {
-            setSelectedMessage({ ...data.data, loading: false });
-          }
-        }
+      } else if (account.provider === '1secmail') {
+        const res = await fetch(`${SECMAIL_API}?action=getMessages&login=${account.usr}&domain=${account.dmn}`);
+        const data = await res.json();
+        const msgs = data.map((m: any) => ({
+          id: m.id.toString(),
+          from: m.from,
+          subject: m.subject,
+          date: m.date,
+          body_preview: 'Click to read'
+        }));
+        setEmails(msgs);
       } else {
-        const res = await fetch(`${API_BASE}/messages/${id}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setSelectedMessage(data);
-        }
+        // generator.email proxy - this is harder as it returns HTML
+        // For now, we'll just log that we're checking
+        addLog('Checking Generator.email inbox...', 'info');
       }
     } catch (err) {
-      console.error('Failed to read message', err);
-      setSelectedMessage(null);
+      addLog('Failed to fetch emails', 'error');
     } finally {
-      setMessageLoading(false);
+      setFetchingEmails(false);
+    }
+  }, [account, emails.length, soundEnabled]);
+
+  const readEmail = async (id: string) => {
+    if (!account) return;
+    setLoading(true);
+    try {
+      if (account.provider === 'mail.tm') {
+        const res = await fetch(`${MAIL_TM_API}/messages/${id}`, {
+          headers: { 'Authorization': `Bearer ${account.token}` }
+        });
+        const data = await res.json();
+        setSelectedEmail({
+          id: data.id,
+          from: data.from.address,
+          subject: data.subject,
+          date: new Date(data.createdAt).toLocaleString(),
+          html: data.html?.[0] || data.text,
+          text: data.text
+        });
+      } else if (account.provider === '1secmail') {
+        const res = await fetch(`${SECMAIL_API}?action=readMessage&login=${account.usr}&domain=${account.dmn}&id=${id}`);
+        const data = await res.json();
+        setSelectedEmail({
+          id: data.id.toString(),
+          from: data.from,
+          subject: data.subject,
+          date: data.date,
+          html: data.htmlBody || data.body,
+          text: data.body
+        });
+      }
+    } catch (err) {
+      addLog('Failed to read email', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const switchAccount = (acc: any) => {
-    setAccount(acc);
-    setToken(acc.token);
-    localStorage.setItem('mail_account', JSON.stringify(acc));
-    localStorage.setItem('mail_token', acc.token);
-    setIsSidebarOpen(false);
-    setMessages([]);
-    fetchMessages(acc);
-  };
-
-  const deleteAccount = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    const updated = savedAccounts.filter(a => a.id !== id);
-    setSavedAccounts(updated);
-    localStorage.setItem('saved_accounts', JSON.stringify(updated));
-    syncAccountsToR2(updated);
-    if (account?.id === id) {
-      logout();
+  useEffect(() => {
+    if (account) {
+      const interval = setInterval(fetchEmails, 10000);
+      fetchEmails();
+      return () => clearInterval(interval);
     }
-  };
+  }, [account, fetchEmails]);
 
-  const copyToClipboard = () => {
-    if (account?.address) {
+  const copyEmail = () => {
+    if (account) {
       navigator.clipboard.writeText(account.address);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+      addLog('Email copied to clipboard', 'success');
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem('mail_account');
-    localStorage.removeItem('mail_token');
+  const reset = () => {
     setAccount(null);
-    setToken('');
-    setMessages([]);
+    setEmails([]);
+    setSelectedEmail(null);
+    setLogs([]);
+    addLog('System reset', 'info');
   };
 
-  const translateEmail = async () => {
-    if (!selectedMessage || isTranslating) return;
-    
-    // Toggle if already translated
-    if (selectedMessage.translatedHtml || selectedMessage.translatedText) {
-      setShowTranslation(!showTranslation);
-      return;
-    }
-
-    setIsTranslating(true);
-    try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const isHtml = !!selectedMessage.html;
-      const contentToTranslate = isHtml ? selectedMessage.html : selectedMessage.text;
-      
-      const prompt = `Terjemahkan konten email berikut ke bahasa Indonesia. 
-      ${isHtml ? 'Konten ini dalam format HTML. Anda HARUS mempertahankan struktur HTML, tag, dan gaya persis seperti aslinya, dan HANYA terjemahkan teks di dalam tag tersebut.' : 'Konten ini adalah teks biasa.'}
-      
-      Berikut adalah kontennya:
-      ${contentToTranslate}`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
-        contents: prompt,
-      });
-
-      const translatedText = response.text;
-      
-      setSelectedMessage((prev: any) => ({
-        ...prev,
-        [isHtml ? 'translatedHtml' : 'translatedText']: translatedText
-      }));
-      setShowTranslation(true);
-    } catch (err) {
-      console.error('Translation failed', err);
-      // Fallback or alert could be added here, but we'll just log it to keep UI clean
-    } finally {
-      setIsTranslating(false);
-    }
-  };
-
+  // --- UI Components ---
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-purple-500/30 flex flex-col">
+    <div className="min-h-screen bg-[#0a0a0a] text-zinc-100 font-sans selection:bg-indigo-500/30">
       {/* Header */}
-      <header className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-slate-800 bg-slate-950/80 backdrop-blur-xl sticky top-0 z-40">
-        <div className="flex items-center gap-3 sm:gap-4">
-          <button 
-            onClick={() => setIsSidebarOpen(true)} 
-            className="p-2 -ml-2 rounded-xl hover:bg-white/10 text-gray-300 hover:text-white transition-all active:scale-95"
-          >
-            <Menu className="w-5 h-5 sm:w-6 sm:h-6" />
-          </button>
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-              <Mail className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+      <header className="border-b border-zinc-800/50 bg-black/50 backdrop-blur-xl sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
+              <Mail className="w-6 h-6 text-white" />
             </div>
-            <h1 className="text-base sm:text-lg font-bold tracking-tight text-white hidden xs:block">
-              EMAIL PRO
-            </h1>
+            <div>
+              <h1 className="text-lg font-bold tracking-tight">Email Generator</h1>
+              <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-semibold">Disposable Temp Mail</p>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2 sm:gap-4">
-          <button 
-            onClick={() => setAutoRefresh(!autoRefresh)}
-            className={`p-2 sm:p-2.5 rounded-xl transition-all active:scale-95 ${autoRefresh ? 'bg-emerald-500/20 text-emerald-400' : 'hover:bg-white/10 text-gray-400 hover:text-white'}`}
-            title="Auto-Refresh Inbox (5s)"
-          >
-            <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${autoRefresh ? 'animate-spin' : ''}`} />
-          </button>
-          <button 
-            onClick={() => setShowLogs(!showLogs)}
-            className={`p-2 sm:p-2.5 rounded-xl transition-all active:scale-95 ${showLogs ? 'bg-indigo-500/20 text-indigo-400' : 'hover:bg-white/10 text-gray-400 hover:text-white'}`}
-            title="System Logs"
-          >
-            <Terminal className="w-4 h-4 sm:w-5 sm:h-5" />
-          </button>
-          <div className="relative group">
-            <select 
-              value={tool} 
-              onChange={(e) => setTool(e.target.value as any)}
-              className="appearance-none bg-[#1a1a1a] border border-white/10 rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 pr-8 sm:pr-10 text-xs sm:text-sm font-medium text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 hover:bg-[#222] transition-all cursor-pointer"
-            >
-              <option value="mail.tm">Mail.tm</option>
-              <option value="generator.email">Generator.email</option>
-              <option value="1secmail">1secmail.com</option>
-            </select>
-            <ChevronDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400 absolute right-2.5 sm:right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-          {account && (
+          
+          <div className="flex items-center gap-4">
             <button 
-              onClick={logout}
-              className="text-xs sm:text-sm font-medium text-red-400/80 hover:text-red-400 flex items-center gap-1.5 sm:gap-2 transition-all px-2 sm:px-3 py-2 sm:py-2.5 rounded-xl hover:bg-red-500/10 active:scale-95"
+              onClick={() => setSoundEnabled(!soundEnabled)}
+              className="p-2 hover:bg-zinc-800 rounded-lg transition-colors text-zinc-400"
             >
-              <LogOut className="w-4 h-4 sm:w-5 sm:h-5" />
-              <span className="hidden sm:inline">Keluar</span>
+              {soundEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
             </button>
-          )}
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-zinc-900 rounded-full border border-zinc-800">
+              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+              <span className="text-xs font-medium text-zinc-400">System Online</span>
+            </div>
+          </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col w-full max-w-5xl mx-auto p-4 sm:p-6 lg:p-8">
-        {!account ? (
-          // Landing Page
-          <div className="flex-1 flex flex-col items-center justify-center sm:justify-start mt-4 sm:mt-12 w-full max-w-md mx-auto">
-            <div className="w-full bg-slate-900 border border-slate-800 rounded-[24px] p-6 sm:p-8 shadow-2xl relative overflow-hidden">
-              {/* Decorative background glow */}
-              <div className="absolute -top-24 -right-24 w-48 h-48 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
-              <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-purple-500/20 rounded-full blur-3xl pointer-events-none"></div>
-              
-              <div className="text-center mb-8 relative z-10">
-                <h2 className="text-2xl sm:text-3xl font-bold text-white mb-2 tracking-tight">Buat Email Baru</h2>
-                <p className="text-gray-400 text-sm sm:text-base">Pilih nama dan domain untuk email Anda</p>
-              </div>
-              <form onSubmit={handleGenerate} className="space-y-5 relative z-10">
-                <div>
-                  <label className="block text-xs sm:text-sm font-semibold text-gray-300 mb-2 uppercase tracking-wider">Nama Email</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9]/g, '').toLowerCase())}
-                    placeholder="contoh: john"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all text-base"
-                  />
-                </div>
-                {tool === 'mail.tm' ? (
-                  <div>
-                    <label className="block text-xs sm:text-sm font-semibold text-amber-500 mb-2 uppercase tracking-wider">Domain</label>
-                    <div className="relative">
-                      <select 
-                        value={selectedDomain}
-                        onChange={(e) => setSelectedDomain(e.target.value)}
-                        className="w-full bg-black border-2 border-purple-600 rounded-xl px-4 py-3.5 text-white appearance-none focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all text-base"
-                      >
-                        {VIP_DOMAINS.filter(c => c.category !== '📨 1SECMAIL').map((group) => (
-                          <optgroup key={group.category} label={group.category} className="bg-black text-purple-400 font-bold">
-                            {group.domains.map((d) => (
-                              <option key={d.name} value={d.name} className="bg-black text-white">
-                                {group.category === '👑 ELITE' ? '● ' : ''}{d.name} {d.uptime ? `(${d.uptime})` : ''}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
-                      <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-amber-500">
-                        <ChevronDown className="w-5 h-5" />
-                      </div>
-                    </div>
-                  </div>
-                ) : tool === '1secmail' ? (
-                  <div>
-                    <label className="block text-xs sm:text-sm font-semibold text-indigo-400 mb-2 uppercase tracking-wider">Domain (1secmail)</label>
-                    <div className="relative">
-                      <select 
-                        value={secmailDomain}
-                        onChange={(e) => setSecmailDomain(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-slate-100 appearance-none focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all text-base"
-                      >
-                        {VIP_DOMAINS.find(c => c.category === '📨 1SECMAIL')?.domains.map((d) => (
-                          <option key={d.name} value={d.name}>
-                            {d.name}
-                          </option>
-                        ))}
-                      </select>
-                      <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
-                        <ChevronDown className="w-5 h-5" />
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    <label className="block text-xs sm:text-sm font-semibold text-gray-300 mb-2 uppercase tracking-wider">Domain (Generator.email)</label>
-                    <div className="relative" ref={dropdownRef}>
-                      <input 
-                        type="text" 
-                        required
-                        value={generatorDomain}
-                        onChange={(e) => setGeneratorDomain(e.target.value.toLowerCase())}
-                        onFocus={() => setIsDomainDropdownOpen(true)}
-                        placeholder="Pilih atau ketik domain..."
-                        className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl px-4 py-3.5 text-white placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all text-base pr-16"
-                      />
-                      <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-3">
-                        {domainStatuses[generatorDomain] === undefined && generatorDomain ? (
-                           <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-500" />
-                        ) : domainStatuses[generatorDomain] === true ? (
-                           <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" title="Online"></span>
-                        ) : domainStatuses[generatorDomain] === false ? (
-                           <span className="w-2.5 h-2.5 rounded-full bg-red-500/80" title="Offline"></span>
-                        ) : null}
-                        <ChevronDown 
-                          className={`w-5 h-5 text-gray-500 transition-transform cursor-pointer hover:text-gray-300 ${isDomainDropdownOpen ? 'rotate-180' : ''}`} 
-                          onClick={() => setIsDomainDropdownOpen(!isDomainDropdownOpen)} 
-                        />
-                      </div>
-
-                      {isDomainDropdownOpen && (
-                        <div className="absolute z-50 w-full mt-2 bg-[#111] border border-white/10 rounded-xl shadow-2xl max-h-64 overflow-y-auto custom-scrollbar">
-                          {VIP_DOMAINS.filter(c => c.category !== '📨 1SECMAIL').map((category, idx) => (
-                            <div key={idx} className="py-2">
-                              <div className="px-4 py-1.5 text-[10px] sm:text-xs font-bold text-indigo-400/80 uppercase tracking-wider bg-white/5 sticky top-0 backdrop-blur-md z-10">
-                                {category.category}
-                              </div>
-                              {category.domains.map(domain => (
-                                <div 
-                                  key={domain.name}
-                                  onClick={() => {
-                                    setGeneratorDomain(domain.name);
-                                    setIsDomainDropdownOpen(false);
-                                  }}
-                                  className="px-4 py-2.5 hover:bg-white/10 cursor-pointer flex items-center justify-between transition-colors"
-                                >
-                                  <span className="text-sm text-gray-200">{domain.name}</span>
-                                  <div className="flex items-center gap-2">
-                                    {category.category === '👑 ELITE' && <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]"></div>}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {error && (
-                  <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-start gap-3">
-                    <span className="shrink-0 mt-0.5">⚠️</span>
-                    <p>{error}</p>
-                  </div>
-                )}
-
-                <button 
-                  type="submit" 
-                  disabled={loading || !username || (tool === 'mail.tm' && !selectedDomain) || (tool === 'generator.email' && !generatorDomain) || (tool === '1secmail' && !secmailDomain)}
-                  className="w-full bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25 font-semibold text-base py-4 px-4 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-6 active:scale-[0.98]"
-                >
-                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Buat Email Sekarang'}
-                </button>
-              </form>
+      <main className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
+        
+        {/* Left Column: Generator & Logs */}
+        <div className="lg:col-span-4 space-y-6">
+          
+          {/* Generator Card */}
+          <section className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-6 shadow-2xl overflow-hidden relative group">
+            <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
+              <Zap className="w-32 h-32 text-indigo-500" />
             </div>
-          </div>
-        ) : (
-          // Dashboard
-          <div className="flex-1 flex flex-col space-y-4 sm:space-y-6 animate-in fade-in duration-500">
-            {/* Email Address Card */}
-            <div className="bg-[#111] border border-indigo-500/20 rounded-[24px] p-5 sm:p-8 flex flex-col sm:flex-row sm:items-center justify-between gap-5 relative overflow-hidden shadow-xl shadow-black/50">
-              <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
-              <div className="relative z-10">
-                <p className="text-xs sm:text-sm font-semibold text-indigo-400/80 mb-1.5 uppercase tracking-wider">Alamat Email Aktif</p>
-                <p className="text-xl sm:text-3xl font-bold text-white tracking-tight break-all">{account.address}</p>
+            
+            <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+              <Plus className="w-5 h-5 text-indigo-400" />
+              Generate Mail
+            </h2>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-zinc-500 mb-2 uppercase tracking-wider">Provider</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['mail.tm', '1secmail', 'generator.email'] as const).map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setTool(p)}
+                      className={cn(
+                        "py-2 text-[10px] font-bold rounded-xl border transition-all uppercase tracking-tight",
+                        tool === p 
+                          ? "bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-500/20" 
+                          : "bg-zinc-800/50 border-zinc-700 text-zinc-400 hover:border-zinc-600"
+                      )}
+                    >
+                      {p.split('.')[0]}
+                    </button>
+                  ))}
+                </div>
               </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-500 mb-2 uppercase tracking-wider">Username (Optional)</label>
+                <input 
+                  type="text" 
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="e.g. jason_born"
+                  className="w-full bg-black/50 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 transition-colors placeholder:text-zinc-700"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-500 mb-2 uppercase tracking-wider">Domain</label>
+                <select 
+                  value={selectedDomain}
+                  onChange={(e) => setSelectedDomain(e.target.value)}
+                  className="w-full bg-black/50 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 transition-colors appearance-none"
+                >
+                  {domains.map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
+
               <button 
-                onClick={copyToClipboard}
-                className="relative z-10 flex items-center justify-center gap-2 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 rounded-xl px-5 py-3 transition-all group/copy active:scale-95 w-full sm:w-auto"
+                onClick={generateAccount}
+                disabled={loading}
+                className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2 group"
               >
-                {copied ? (
-                  <>
-                    <span className="text-indigo-400 text-sm font-semibold">Tersalin!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-400 group-hover/copy:text-indigo-300" />
-                    <span className="text-sm font-semibold text-indigo-300 group-hover/copy:text-indigo-200">Salin Alamat</span>
-                  </>
-                )}
+                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5 group-hover:scale-110 transition-transform" />}
+                {account ? 'Generate New' : 'Create Account'}
               </button>
             </div>
+          </section>
 
-            {/* Inbox */}
-            <div className="bg-[#111] border border-white/10 rounded-[24px] overflow-hidden flex flex-col flex-1 min-h-[500px] shadow-xl shadow-black/50">
-              <div className="p-4 sm:p-5 border-b border-white/5 flex items-center justify-between bg-[#161616]">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center">
-                    <Inbox className="w-4 h-4 text-indigo-400" />
-                  </div>
-                  <h3 className="text-base sm:text-lg font-semibold text-white tracking-tight">Kotak Masuk</h3>
-                  <span className="bg-white/10 text-gray-300 text-xs font-bold px-2.5 py-1 rounded-full">
-                    {messages.length}
+          {/* Logs Card */}
+          <section className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-6 h-[300px] flex flex-col">
+            <h2 className="text-xs font-bold text-zinc-500 mb-4 uppercase tracking-widest flex items-center gap-2">
+              <Clock className="w-4 h-4" />
+              System Activity
+            </h2>
+            <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+              {logs.length === 0 && (
+                <div className="h-full flex flex-col items-center justify-center text-zinc-700 italic text-sm">
+                  <p>No activity yet...</p>
+                </div>
+              )}
+              {logs.map((log, i) => (
+                <div key={i} className="text-[11px] font-mono flex gap-2 leading-relaxed animate-in fade-in slide-in-from-left-2">
+                  <span className="text-zinc-600">[{new Date().toLocaleTimeString([], { hour12: false })}]</span>
+                  <span className={cn(
+                    log.type === 'success' ? 'text-emerald-400' : 
+                    log.type === 'error' ? 'text-rose-400' : 'text-zinc-400'
+                  )}>
+                    {log.msg}
                   </span>
                 </div>
-                <button 
-                  onClick={() => fetchMessages()}
-                  className="p-2.5 rounded-xl hover:bg-white/10 text-gray-400 hover:text-white transition-all active:scale-95"
-                  title="Refresh"
-                >
-                  <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${refreshing ? 'animate-spin text-indigo-400' : ''}`} />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto bg-[#0a0a0a]">
-                {refreshing ? (
-                  <div className="flex flex-col items-center justify-center h-full min-h-[300px] text-center px-4 py-12">
-                    <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4">
-                      <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
-                    </div>
-                    <p className="text-gray-300 font-medium text-lg">Memuat pesan...</p>
-                    <p className="text-sm text-gray-500 mt-1">Mohon tunggu sebentar</p>
-                  </div>
-                ) : messages.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full min-h-[300px] text-center px-4 py-12">
-                    <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4">
-                      <Inbox className="w-8 h-8 text-gray-500" />
-                    </div>
-                    <p className="text-gray-300 font-medium text-lg">Kotak masuk kosong</p>
-                    <p className="text-sm text-gray-500 mt-1">Menunggu pesan baru masuk...</p>
-                  </div>
-                ) : (
-                  <ul className="divide-y divide-white/5">
-                    {messages.map((msg) => {
-                      const senderInitial = (msg.from?.name || msg.from?.address || '?').charAt(0).toUpperCase();
-                      return (
-                        <li key={msg.id}>
-                          <button 
-                            onClick={() => readMessage(msg.id)}
-                            className="w-full text-left p-4 sm:p-5 hover:bg-white/5 transition-colors flex items-start gap-3 sm:gap-4 group active:bg-white/10"
-                          >
-                            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 shadow-md">
-                              <span className="text-white font-bold text-base sm:text-lg">{senderInitial}</span>
-                            </div>
-                            <div className="flex-1 min-w-0 pt-0.5">
-                              <div className="flex items-center justify-between mb-1 gap-2">
-                                <p className="font-semibold text-gray-200 truncate group-hover:text-indigo-300 transition-colors text-sm sm:text-base">
-                                  {msg.from?.name || msg.from?.address || 'Unknown'}
-                                </p>
-                                <span className="text-[10px] sm:text-xs font-medium text-gray-500 whitespace-nowrap">
-                                  {new Date(msg.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                                </span>
-                              </div>
-                              <p className="text-xs sm:text-sm text-gray-400 truncate group-hover:text-gray-300 transition-colors">
-                                {msg.subject || '(Tanpa Subjek)'}
-                              </p>
-                            </div>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
+              ))}
+              <div ref={logEndRef} />
             </div>
-          </div>
-        )}
-      </main>
-
-      {/* Sidebar */}
-      {isSidebarOpen && (
-        <div className="fixed inset-0 z-50 flex">
-          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm transition-opacity" onClick={() => setIsSidebarOpen(false)}></div>
-          <div className="relative w-[280px] max-w-[85vw] bg-[#0a0a0a] border-r border-white/10 h-full shadow-2xl flex flex-col animate-in slide-in-from-left duration-300">
-            <div className="p-5 border-b border-white/10 flex items-center justify-between bg-[#111]">
-              <h2 className="font-semibold text-white tracking-tight">Akun Tersimpan</h2>
-              <button onClick={() => setIsSidebarOpen(false)} className="p-2 -mr-2 rounded-xl hover:bg-white/10 text-gray-400 hover:text-white transition-all active:scale-95">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              {savedAccounts.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-40 text-center">
-                  <p className="text-sm font-medium text-gray-500">Belum ada akun tersimpan</p>
-                </div>
-              ) : (
-                savedAccounts.map(acc => (
-                  <div 
-                    key={acc.id} 
-                    onClick={() => switchAccount(acc)} 
-                    className={`w-full text-left p-3.5 rounded-xl transition-all cursor-pointer flex items-center justify-between group ${account?.id === acc.id ? 'bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 shadow-lg shadow-indigo-500/5' : 'bg-[#111] text-gray-400 hover:bg-white/5 hover:text-gray-200 border border-white/5'}`}
-                  >
-                    <div className="flex flex-col truncate pr-3">
-                      <div className="flex items-center">
-                        <Mail className={`w-4 h-4 mr-3 shrink-0 ${account?.id === acc.id ? 'text-indigo-400' : 'text-gray-500 group-hover:text-gray-400'}`} />
-                        <p className="text-sm font-semibold truncate">{acc.address}</p>
-                      </div>
-                      <span className="text-[10px] font-bold text-gray-500 ml-7 mt-1 uppercase tracking-widest">{acc.provider || 'mail.tm'}</span>
-                    </div>
-                    <button 
-                      onClick={(e) => deleteAccount(e, acc.id)} 
-                      className="p-2 rounded-lg hover:bg-red-500/20 text-gray-500 hover:text-red-400 transition-all opacity-100 sm:opacity-0 sm:group-hover:opacity-100 active:scale-95"
-                      title="Hapus Akun"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
+          </section>
         </div>
-      )}
 
-      {/* Message Modal */}
-      {selectedMessage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
-          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm transition-opacity" onClick={() => setSelectedMessage(null)}></div>
-          <div className="relative w-full max-w-4xl bg-[#0a0a0a] border border-white/10 rounded-[24px] shadow-2xl overflow-hidden flex flex-col max-h-[90vh] sm:max-h-[85vh] animate-in zoom-in-95 duration-200">
-            
-            {/* Modal Header */}
-            <div className="p-5 sm:p-6 border-b border-white/10 flex items-start justify-between bg-[#111]">
-              <div className="pr-4 flex-1 min-w-0">
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 mb-3">
-                  <h2 className="text-xl sm:text-2xl font-bold text-white leading-tight tracking-tight truncate">{selectedMessage.subject || '(Tanpa Subjek)'}</h2>
-                  {!messageLoading && !selectedMessage.loading && (
-                    <button
-                      onClick={translateEmail}
-                      disabled={isTranslating}
-                      className={`flex items-center justify-center gap-2 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition-all border shrink-0 active:scale-95 w-fit ${
-                        showTranslation 
-                          ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' 
-                          : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10 hover:text-white'
-                      }`}
-                      title="Terjemahkan ke Bahasa Indonesia"
-                    >
-                      {isTranslating ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Languages className="w-4 h-4" />
-                      )}
-                      {showTranslation ? 'Teks Asli' : 'Terjemahkan'}
-                    </button>
-                  )}
-                </div>
-                {selectedMessage.from && (
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 text-sm">
-                    <span className="font-semibold text-gray-200">{selectedMessage.from.name || selectedMessage.from.address}</span>
-                    <span className="text-gray-500 text-xs sm:text-sm truncate">&lt;{selectedMessage.from.address}&gt;</span>
+        {/* Right Column: Inbox & Content */}
+        <div className="lg:col-span-8 space-y-6">
+          
+          {/* Active Account Banner */}
+          <AnimatePresence mode="wait">
+            {account ? (
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-indigo-600 rounded-3xl p-6 shadow-2xl shadow-indigo-500/20 flex flex-col sm:flex-row items-center justify-between gap-4 relative overflow-hidden"
+              >
+                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-r from-white/10 to-transparent pointer-events-none" />
+                <div className="flex items-center gap-4 z-10">
+                  <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md">
+                    <ShieldCheck className="w-7 h-7 text-white" />
                   </div>
+                  <div>
+                    <p className="text-indigo-100 text-xs font-bold uppercase tracking-widest mb-1">Your Temporary Address</p>
+                    <h3 className="text-xl sm:text-2xl font-black text-white break-all">{account.address}</h3>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 z-10">
+                  <button 
+                    onClick={copyEmail}
+                    className="bg-white text-indigo-600 hover:bg-indigo-50 rounded-xl px-4 py-3 font-bold flex items-center gap-2 transition-all active:scale-95"
+                  >
+                    {copied ? <CheckCircle2 className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+                    {copied ? 'Copied!' : 'Copy'}
+                  </button>
+                  <button 
+                    onClick={reset}
+                    className="bg-indigo-700/50 hover:bg-indigo-700 text-white rounded-xl p-3 transition-all"
+                    title="Delete Account"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                </div>
+              </motion.div>
+            ) : (
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="bg-zinc-900/30 border-2 border-dashed border-zinc-800 rounded-3xl p-12 text-center"
+              >
+                <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Mail className="w-8 h-8 text-zinc-600" />
+                </div>
+                <h3 className="text-xl font-bold text-zinc-400 mb-2">No Active Mailbox</h3>
+                <p className="text-zinc-600 max-w-xs mx-auto text-sm">Generate a temporary email address to start receiving messages anonymously.</p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Inbox Area */}
+          <div className="bg-zinc-900/50 border border-zinc-800 rounded-3xl overflow-hidden min-h-[500px] flex flex-col">
+            <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-black/20">
+              <div className="flex items-center gap-2">
+                <Inbox className="w-5 h-5 text-indigo-400" />
+                <h2 className="font-bold">Inbox</h2>
+                {emails.length > 0 && (
+                  <span className="bg-indigo-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full">
+                    {emails.length}
+                  </span>
                 )}
               </div>
               <button 
-                onClick={() => setSelectedMessage(null)}
-                className="p-2.5 -mr-2 -mt-2 rounded-xl hover:bg-white/10 text-gray-400 hover:text-white transition-all shrink-0 active:scale-95 bg-black/20"
+                onClick={fetchEmails}
+                disabled={!account || fetchingEmails}
+                className="text-xs font-bold text-zinc-400 hover:text-white flex items-center gap-2 transition-colors disabled:opacity-30"
               >
-                <X className="w-5 h-5 sm:w-6 sm:h-6" />
+                <RefreshCw className={cn("w-4 h-4", fetchingEmails && "animate-spin")} />
+                Refresh
               </button>
             </div>
 
-            {/* Modal Body */}
-            <div className="p-0 overflow-y-auto flex-1 bg-white relative" style={{ WebkitOverflowScrolling: 'touch' }}>
-              {messageLoading || selectedMessage.loading ? (
-                <div className="absolute inset-0 flex items-center justify-center bg-[#0a0a0a]">
-                  <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
-                </div>
-              ) : (
-                <div className="w-full h-full min-h-[500px]">
-                  {selectedMessage.html ? (
-                    <iframe 
-                      srcDoc={showTranslation && selectedMessage.translatedHtml ? selectedMessage.translatedHtml : selectedMessage.html} 
-                      className="w-full h-full min-h-[500px] border-0"
-                      sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"
-                    />
-                  ) : (
-                    <div className="p-6 sm:p-8 bg-[#0a0a0a] h-full">
-                      <div 
-                        className="whitespace-pre-wrap font-sans text-gray-300 text-sm sm:text-base leading-relaxed"
-                        dangerouslySetInnerHTML={{
-                          __html: highlightOTP(showTranslation && selectedMessage.translatedText ? selectedMessage.translatedText : (selectedMessage.text || 'Tidak ada konten'))
-                        }}
-                      />
+            <div className="flex-1 relative">
+              <AnimatePresence mode="wait">
+                {selectedEmail ? (
+                  <motion.div 
+                    key="viewer"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="absolute inset-0 bg-zinc-900 flex flex-col z-20"
+                  >
+                    <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+                      <button 
+                        onClick={() => setSelectedEmail(null)}
+                        className="flex items-center gap-2 text-sm font-bold text-zinc-400 hover:text-white transition-colors"
+                      >
+                        <ArrowLeft className="w-4 h-4" />
+                        Back to Inbox
+                      </button>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono text-zinc-500">{selectedEmail.date}</span>
+                      </div>
                     </div>
-                  )}
-                </div>
-              )}
+                    <div className="p-6 border-b border-zinc-800">
+                      <h3 className="text-xl font-bold mb-2">{selectedEmail.subject}</h3>
+                      <div className="flex items-center gap-2 text-sm text-zinc-400">
+                        <span className="font-semibold text-indigo-400">From:</span>
+                        {selectedEmail.from}
+                      </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-6 bg-white text-zinc-900 custom-scrollbar selection:bg-indigo-200">
+                      {selectedEmail.html ? (
+                        <div dangerouslySetInnerHTML={{ __html: selectedEmail.html }} />
+                      ) : (
+                        <pre className="whitespace-pre-wrap font-sans text-sm">{selectedEmail.text}</pre>
+                      )}
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.div 
+                    key="list"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="divide-y divide-zinc-800/50"
+                  >
+                    {emails.length === 0 ? (
+                      <div className="py-32 flex flex-col items-center justify-center text-zinc-700">
+                        {fetchingEmails ? (
+                          <Loader2 className="w-12 h-12 animate-spin mb-4 opacity-20" />
+                        ) : (
+                          <Inbox className="w-12 h-12 mb-4 opacity-10" />
+                        )}
+                        <p className="text-sm font-medium">{fetchingEmails ? 'Checking for new mail...' : 'Waiting for incoming mail...'}</p>
+                        <p className="text-[10px] uppercase tracking-widest mt-2 opacity-50">Updates every 10 seconds</p>
+                      </div>
+                    ) : (
+                      emails.map((email) => (
+                        <button
+                          key={email.id}
+                          onClick={() => readEmail(email.id)}
+                          className="w-full px-6 py-5 flex items-start gap-4 hover:bg-indigo-600/5 transition-colors text-left group"
+                        >
+                          <div className="w-10 h-10 bg-zinc-800 rounded-xl flex-shrink-0 flex items-center justify-center group-hover:bg-indigo-600/20 transition-colors">
+                            <Mail className="w-5 h-5 text-zinc-500 group-hover:text-indigo-400 transition-colors" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-sm font-bold text-zinc-200 truncate pr-4">{email.from}</span>
+                              <span className="text-[10px] font-mono text-zinc-500 whitespace-nowrap">{email.date}</span>
+                            </div>
+                            <h4 className="text-sm font-medium text-zinc-400 truncate mb-1">{email.subject}</h4>
+                            <p className="text-xs text-zinc-600 truncate">{email.body_preview}</p>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-zinc-700 mt-1 group-hover:text-indigo-400 transition-colors" />
+                        </button>
+                      ))
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
-        </div>
-      )}
-      {/* Logs Modal */}
-      {showLogs && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
-          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm transition-opacity" onClick={() => setShowLogs(false)}></div>
-          <div className="relative bg-[#0a0a0a] border border-white/10 rounded-[24px] w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between px-5 sm:px-6 py-4 sm:py-5 border-b border-white/10 bg-[#111]">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center">
-                  <Terminal className="w-4 h-4 text-indigo-400" />
+
+          {/* Features Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {[
+              { icon: ShieldCheck, title: 'Privacy First', desc: 'No registration, no personal data required.' },
+              { icon: Zap, title: 'Instant Delivery', desc: 'Emails arrive in real-time with zero delay.' },
+              { icon: Clock, title: 'Auto-Delete', desc: 'Messages are automatically purged after use.' }
+            ].map((feature, i) => (
+              <div key={i} className="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-4 flex items-start gap-3">
+                <div className="p-2 bg-zinc-800 rounded-lg">
+                  <feature.icon className="w-4 h-4 text-indigo-400" />
                 </div>
-                <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">System Logs</h2>
-              </div>
-              <div className="flex items-center gap-2 sm:gap-3">
-                <button 
-                  onClick={() => setLogs([])}
-                  className="px-3 py-1.5 rounded-xl hover:bg-white/10 text-gray-400 hover:text-white transition-all text-xs sm:text-sm font-semibold active:scale-95"
-                >
-                  Clear
-                </button>
-                <button 
-                  onClick={() => setShowLogs(false)}
-                  className="p-2 rounded-xl hover:bg-white/10 text-gray-400 hover:text-white transition-all active:scale-95"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-            <div className="p-4 sm:p-6 overflow-y-auto flex-1 bg-[#050505] font-mono text-xs sm:text-sm space-y-3" style={{ WebkitOverflowScrolling: 'touch' }}>
-              {logs.length === 0 ? (
-                <div className="text-gray-500 text-center py-12 flex flex-col items-center justify-center">
-                  <Terminal className="w-8 h-8 text-gray-600 mb-3" />
-                  <p>No logs available</p>
+                <div>
+                  <h4 className="text-xs font-bold mb-1">{feature.title}</h4>
+                  <p className="text-[10px] text-zinc-500 leading-relaxed">{feature.desc}</p>
                 </div>
-              ) : (
-                logs.map(log => (
-                  <div key={log.id} className="flex items-start gap-3 border-b border-white/5 pb-3 last:border-0 hover:bg-white/5 p-2 rounded-lg transition-colors">
-                    <span className="text-gray-500 shrink-0 font-medium">[{log.time}]</span>
-                    <span className={`break-all leading-relaxed ${
-                      log.type === 'error' ? 'text-red-400 font-medium' : 
-                      log.type === 'success' ? 'text-emerald-400 font-medium' : 
-                      'text-gray-300'
-                    }`}>
-                      {log.message}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
+              </div>
+            ))}
           </div>
         </div>
-      )}
+      </main>
+
+      {/* Footer */}
+      <footer className="max-w-7xl mx-auto px-4 py-12 border-t border-zinc-800/50 mt-12">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="flex items-center gap-2 opacity-30 grayscale">
+            <Mail className="w-5 h-5" />
+            <span className="font-bold tracking-tighter">EMAIL GENERATOR</span>
+          </div>
+          <div className="flex items-center gap-8 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
+            <a href="#" className="hover:text-indigo-400 transition-colors">Privacy Policy</a>
+            <a href="#" className="hover:text-indigo-400 transition-colors">Terms of Service</a>
+            <a href="#" className="hover:text-indigo-400 transition-colors">API Documentation</a>
+            <a href="#" className="hover:text-indigo-400 transition-colors">Contact</a>
+          </div>
+          <p className="text-[10px] text-zinc-600 font-mono">© 2026 TEMP-MAIL-GEN.SYSTEM</p>
+        </div>
+      </footer>
+
+      {/* Global Styles */}
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #27272a;
+          border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #3f3f46;
+        }
+      `}</style>
     </div>
   );
 }
-
