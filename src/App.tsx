@@ -98,16 +98,29 @@ export default function App() {
         setSelectedDomain(data[0] || '');
         addLog(`Loaded ${data.length} domains from 1secmail`, 'success');
       } else {
-        // Mock domains for generator.email proxy
-        const dmns = [
-          'jymz.xyz', 'tako.skin', 'capcutpro.click', 'clonetrust.com', 
-          'sparkletoc.com', 'theweifamily.icu', 'maildoc.org', 'xuseca.cloud',
-          'googl.win', 'thip-like.com', 'c-tta.top', 'nowtopzen.com',
-          'ebarg.net', 'btcmod.com', 'tmxttvmail.com'
-        ];
-        setDomains(dmns);
-        setSelectedDomain(dmns[0]);
-        addLog(`Loaded ${dmns.length} domains for Generator`, 'success');
+        // generator.email proxy
+        try {
+          const res = await fetch('/api/generator/domains');
+          const data = await res.json();
+          if (data.status === 'success' && data.domains && data.domains.length > 0) {
+            setDomains(data.domains);
+            setSelectedDomain(data.domains[0]);
+            addLog(`Loaded ${data.domains.length} domains for Generator`, 'success');
+          } else {
+            throw new Error("No domains returned");
+          }
+        } catch (err) {
+          // Fallback
+          const dmns = [
+            'jymz.xyz', 'tako.skin', 'capcutpro.click', 'clonetrust.com', 
+            'sparkletoc.com', 'theweifamily.icu', 'maildoc.org', 'xuseca.cloud',
+            'googl.win', 'thip-like.com', 'c-tta.top', 'nowtopzen.com',
+            'ebarg.net', 'btcmod.com', 'tmxttvmail.com'
+          ];
+          setDomains(dmns);
+          setSelectedDomain(dmns[0]);
+          addLog(`Loaded ${dmns.length} fallback domains for Generator`, 'info');
+        }
       }
     } catch (err) {
       addLog('Failed to fetch domains', 'error');

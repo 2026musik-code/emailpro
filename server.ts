@@ -33,6 +33,71 @@ api.get("/health", (c) => {
   });
 });
 
+api.get("/generator/domains", async (c) => {
+  try {
+    const { load } = await import("cheerio");
+    const response = await fetch("https://generator.email/", {
+      headers: {
+        "User-Agent": USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+      },
+    });
+
+    const html = await response.text();
+    const $ = load(html);
+    let domains: string[] = [];
+
+    // Method 1: Look for the dropdown options
+    $("select[name='dmn'] option, select#domainName option, .domain-selector option, #domainName option").each((i, el) => {
+      const val = $(el).attr("value") || $(el).text();
+      if (val && val.includes(".") && !val.includes(" ")) {
+        domains.push(val.trim().toLowerCase());
+      }
+    });
+
+    // Method 2: Look for javascript array if dropdown is empty
+    if (domains.length === 0) {
+      const match = html.match(/var\s+domains\s*=\s*\[(.*?)\]/i);
+      if (match && match[1]) {
+        const parsed = match[1].split(',').map(s => s.replace(/['"]/g, '').trim().toLowerCase());
+        domains.push(...parsed.filter(d => d.includes('.') && !d.includes(' ')));
+      }
+    }
+
+    // Method 3: Look for any element with data-domain
+    if (domains.length === 0) {
+      $("[data-domain]").each((i, el) => {
+        const val = $(el).attr("data-domain");
+        if (val && val.includes(".")) domains.push(val.trim().toLowerCase());
+      });
+    }
+
+    // Method 4: Look for any element with class containing 'domain' that looks like a domain
+    if (domains.length === 0) {
+      $(".domain_btn, .dropdown-item").each((i, el) => {
+        const val = $(el).text().trim().toLowerCase();
+        if (val && val.includes(".") && !val.includes(" ")) {
+          domains.push(val);
+        }
+      });
+    }
+
+    const uniqueDomains = [...new Set(domains)].filter(d => d.length > 3);
+
+    if (uniqueDomains.length > 0) {
+      return c.json({ status: "success", domains: uniqueDomains });
+    } else {
+      // Fallback
+      return c.json({
+        status: "success",
+        domains: ['jymz.xyz', 'tako.skin', 'capcutpro.click', 'clonetrust.com', 'sparkletoc.com', 'theweifamily.icu', 'maildoc.org', 'xuseca.cloud', 'googl.win', 'thip-like.com', 'c-tta.top', 'nowtopzen.com', 'ebarg.net', 'btcmod.com', 'tmxttvmail.com']
+      });
+    }
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 api.get("/generator/validate", async (c) => {
   const { usr, dmn } = c.req.query();
   if (!usr || !dmn) return c.json({ error: "Missing parameters" }, 400);
