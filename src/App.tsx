@@ -342,7 +342,15 @@ export default function App() {
           throw new Error(`Generator.email inbox fetch failed: ${response.status} ${response.statusText}`);
         }
         
-        const data = await response.json();
+        const text = await response.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          addLog(`Failed to parse JSON from generator.email: ${text.substring(0, 50)}...`, 'error');
+          throw new Error('Invalid JSON response from server');
+        }
+        
         addLog(`Generator.email response: ${JSON.stringify(data).substring(0, 200)}`, 'info');
         
         const messagesList: any[] = [];

@@ -146,6 +146,11 @@ app.get('/api/generator/inbox', async (req, res) => {
       }
     });
     
+    if (!mailboxResponse.ok) {
+      console.error(`Generator.email mailbox fetch failed: ${mailboxResponse.status}`);
+      return res.status(mailboxResponse.status).json({ email: `${usr}@${dmn}`, total: 0, messages: [], error: `Mailbox fetch failed: ${mailboxResponse.status}` });
+    }
+
     const html = await mailboxResponse.text();
     
     // Now we need to find the actual message list in this HTML.
