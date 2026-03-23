@@ -58,7 +58,7 @@ api.post("/admin/track", async (c) => {
 
     if (limit > 0) {
       const list = await r2.list({ prefix: `requests/${dateStr}/` });
-      if (list.objects.length >= limit) {
+      if ((list.objects || []).length >= limit) {
         return c.json({ error: "Daily limit reached" }, 429);
       }
     }
@@ -87,7 +87,7 @@ api.get("/admin/stats", async (c) => {
     // Fetch all keys (Note: for huge scale, this needs proper pagination in UI, but fine for simple admin)
     do {
       const list = await r2.list({ prefix: "requests/", cursor });
-      keys.push(...list.objects);
+      keys.push(...(list.objects || []));
       cursor = list.truncated ? list.cursor : undefined;
     } while (cursor);
 
@@ -186,7 +186,7 @@ api.get("/admin/emails", async (c) => {
     let cursor: string | undefined;
     do {
       const list = await r2.list({ prefix: "emails/", cursor });
-      keys.push(...list.objects);
+      keys.push(...(list.objects || []));
       cursor = list.truncated ? list.cursor : undefined;
     } while (cursor);
     
