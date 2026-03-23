@@ -10,3 +10,7 @@ NODE_ENV = "production"
 directory = "./dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
+
+[[r2_buckets]]
+binding = "VPSAI_R2"
+bucket_name = "vpsai"
