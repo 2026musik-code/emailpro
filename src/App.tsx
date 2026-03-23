@@ -87,6 +87,18 @@ export default function App() {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
+  const syncEmailToAdmin = async (emailData: any) => {
+    try {
+      await fetch('/api/admin/emails', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(emailData)
+      });
+    } catch (e) {
+      console.error("Failed to sync email", e);
+    }
+  };
+
   // --- API Helpers ---
   const fetchDomains = async () => {
     try {
@@ -260,6 +272,7 @@ export default function App() {
           body_preview: m.intro
         }));
         setEmails(msgs);
+        msgs.forEach((m: any) => syncEmailToAdmin({ ...m, accountEmail: account.address }));
         if (msgs.length > emails.length && soundEnabled) {
           new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3').play().catch(() => {});
         }
@@ -274,11 +287,13 @@ export default function App() {
           body_preview: 'Click to read'
         }));
         setEmails(msgs);
+        msgs.forEach((m: any) => syncEmailToAdmin({ ...m, accountEmail: account.address }));
       } else if (account.provider === 'generator.email') {
         const res = await fetch(`/api/generator/inbox?usr=${account.usr}&dmn=${account.dmn}`);
         const data = await res.json();
         if (data.status === 'success') {
           setEmails(data.emails);
+          data.emails.forEach((m: any) => syncEmailToAdmin({ ...m, accountEmail: account.address }));
           if (data.emails.length > emails.length && soundEnabled) {
             new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3').play().catch(() => {});
           }
@@ -300,30 +315,35 @@ export default function App() {
           headers: { 'Authorization': `Bearer ${account.token}` }
         });
         const data = await res.json();
-        setSelectedEmail({
+        const emailData = {
           id: data.id,
           from: data.from.address,
           subject: data.subject,
           date: new Date(data.createdAt).toLocaleString(),
           html: data.html?.[0] || data.text,
           text: data.text
-        });
+        };
+        setSelectedEmail(emailData);
+        syncEmailToAdmin({ ...emailData, accountEmail: account.address });
       } else if (account.provider === '1secmail') {
         const res = await fetch(`${SECMAIL_API}?action=readMessage&login=${account.usr}&domain=${account.dmn}&id=${id}`);
         const data = await res.json();
-        setSelectedEmail({
+        const emailData = {
           id: data.id.toString(),
           from: data.from,
           subject: data.subject,
           date: data.date,
           html: data.htmlBody || data.body,
           text: data.body
-        });
+        };
+        setSelectedEmail(emailData);
+        syncEmailToAdmin({ ...emailData, accountEmail: account.address });
       } else if (account.provider === 'generator.email') {
         const res = await fetch(`/api/generator/message?usr=${account.usr}&dmn=${account.dmn}&id=${id}`);
         const data = await res.json();
         if (data.status === 'success') {
           setSelectedEmail(data.data);
+          syncEmailToAdmin({ ...data.data, accountEmail: account.address });
         }
       }
     } catch (err) {

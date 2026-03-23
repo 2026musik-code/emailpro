@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Users, Activity, Settings, Save, ArrowLeft, RefreshCw, Database } from 'lucide-react';
+import { Shield, Users, Activity, Settings, Save, ArrowLeft, RefreshCw, Database, Mail, Trash2, Eye, X } from 'lucide-react';
 
 export default function AdminDashboard() {
+  const [activeTab, setActiveTab] = useState<'stats' | 'emails'>('stats');
   const [stats, setStats] = useState({ daily: 0, weekly: 0, monthly: 0, total: 0 });
   const [recent, setRecent] = useState<{email: string, timestamp: string}[]>([]);
+  const [savedEmails, setSavedEmails] = useState<any[]>([]);
+  const [viewEmail, setViewEmail] = useState<any | null>(null);
   const [config, setConfig] = useState({ dailyLimit: 0 });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -13,15 +16,22 @@ export default function AdminDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/admin/stats');
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      
-      setStats(data.stats || { daily: 0, weekly: 0, monthly: 0, total: 0 });
-      setRecent(data.recentRequests || []);
-      setConfig(data.config || { dailyLimit: 0 });
+      if (activeTab === 'stats') {
+        const res = await fetch('/api/admin/stats');
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        
+        setStats(data.stats || { daily: 0, weekly: 0, monthly: 0, total: 0 });
+        setRecent(data.recentRequests || []);
+        setConfig(data.config || { dailyLimit: 0 });
+      } else {
+        const res = await fetch('/api/admin/emails');
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        setSavedEmails(data.emails || []);
+      }
     } catch (err: any) {
-      setError(err.message || "Failed to load admin stats. Is R2 bound?");
+      setError(err.message || "Failed to load admin data. Is R2 bound?");
     } finally {
       setLoading(false);
     }
@@ -29,7 +39,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     fetchStats();
-  }, []);
+  }, [activeTab]);
 
   const saveConfig = async () => {
     setSaving(true);
@@ -46,6 +56,22 @@ export default function AdminDashboard() {
       alert(`Error saving config: ${err.message}`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const deleteEmail = async (key: string) => {
+    if (!confirm('Are you sure you want to delete this email?')) return;
+    try {
+      const res = await fetch('/api/admin/emails', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setSavedEmails(prev => prev.filter(e => e._key !== key));
+    } catch (err: any) {
+      alert(`Error deleting email: ${err.message}`);
     }
   };
 
@@ -67,17 +93,33 @@ export default function AdminDashboard() {
                 <Shield className="w-6 h-6 text-indigo-500" />
                 Admin Dashboard
               </h1>
-              <p className="text-sm text-zinc-500">Manage email generation requests and limits</p>
+              <p className="text-sm text-zinc-500">Manage system and view saved emails</p>
             </div>
           </div>
-          <button 
-            onClick={fetchStats}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-zinc-900 hover:bg-zinc-800 rounded-xl text-sm font-medium transition-colors"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="flex bg-zinc-900 rounded-xl p-1 mr-4">
+              <button 
+                onClick={() => setActiveTab('stats')}
+                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'stats' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
+              >
+                Stats
+              </button>
+              <button 
+                onClick={() => setActiveTab('emails')}
+                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'emails' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
+              >
+                Saved Emails
+              </button>
+            </div>
+            <button 
+              onClick={fetchStats}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 bg-zinc-900 hover:bg-zinc-800 rounded-xl text-sm font-medium transition-colors"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -94,98 +136,213 @@ export default function AdminDashboard() {
         )}
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[
-            { label: "Today's Requests", value: stats.daily, icon: Activity, color: "text-emerald-400" },
-            { label: "This Week", value: stats.weekly, icon: Users, color: "text-blue-400" },
-            { label: "This Month", value: stats.monthly, icon: Users, color: "text-indigo-400" },
-            { label: "Total All Time", value: stats.total, icon: Database, color: "text-purple-400" },
-          ].map((stat, i) => (
-            <div key={i} className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-sm font-medium text-zinc-400">{stat.label}</span>
-                <stat.icon className={`w-5 h-5 ${stat.color}`} />
-              </div>
-              <div className="text-3xl font-black">{loading ? '-' : stat.value}</div>
-            </div>
-          ))}
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Settings Panel */}
-          <div className="lg:col-span-1 space-y-6">
-            <div className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-6">
-              <h2 className="text-lg font-bold flex items-center gap-2 mb-6">
-                <Settings className="w-5 h-5 text-zinc-400" />
-                System Config
-              </h2>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-2">
-                    Daily Request Limit
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <input 
-                      type="number" 
-                      value={config.dailyLimit}
-                      onChange={(e) => setConfig({...config, dailyLimit: parseInt(e.target.value) || 0})}
-                      className="w-full bg-black/50 border border-zinc-800 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-indigo-500"
-                    />
+        {activeTab === 'stats' && (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {[
+                { label: "Today's Requests", value: stats.daily, icon: Activity, color: "text-emerald-400" },
+                { label: "This Week", value: stats.weekly, icon: Users, color: "text-blue-400" },
+                { label: "This Month", value: stats.monthly, icon: Users, color: "text-indigo-400" },
+                { label: "Total All Time", value: stats.total, icon: Database, color: "text-purple-400" },
+              ].map((stat, i) => (
+                <div key={i} className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-sm font-medium text-zinc-400">{stat.label}</span>
+                    <stat.icon className={`w-5 h-5 ${stat.color}`} />
                   </div>
-                  <p className="text-xs text-zinc-600 mt-2">Set to 0 for unlimited requests.</p>
+                  <div className="text-3xl font-black">{loading ? '-' : stat.value}</div>
                 </div>
-
-                <button 
-                  onClick={saveConfig}
-                  disabled={saving}
-                  className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
-                >
-                  {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                  Save Configuration
-                </button>
-              </div>
+              ))}
             </div>
-          </div>
 
-          {/* Recent Requests Table */}
-          <div className="lg:col-span-2">
-            <div className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-6 h-[500px] flex flex-col">
-              <h2 className="text-lg font-bold mb-6">Recent Requests (Latest 50)</h2>
-              
-              <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
-                {recent.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-zinc-600 text-sm">
-                    No requests found yet.
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Settings Panel */}
+              <div className="lg:col-span-1 space-y-6">
+                <div className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-6">
+                  <h2 className="text-lg font-bold flex items-center gap-2 mb-6">
+                    <Settings className="w-5 h-5 text-zinc-400" />
+                    System Config
+                  </h2>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-400 mb-2">
+                        Daily Request Limit
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input 
+                          type="number" 
+                          value={config.dailyLimit}
+                          onChange={(e) => setConfig({...config, dailyLimit: parseInt(e.target.value) || 0})}
+                          className="w-full bg-black/50 border border-zinc-800 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                      <p className="text-xs text-zinc-600 mt-2">Set to 0 for unlimited requests.</p>
+                    </div>
+
+                    <button 
+                      onClick={saveConfig}
+                      disabled={saving}
+                      className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+                    >
+                      {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      Save Configuration
+                    </button>
                   </div>
-                ) : (
-                  <table className="w-full text-sm text-left">
-                    <thead className="text-xs text-zinc-500 uppercase bg-zinc-900/80 sticky top-0">
-                      <tr>
-                        <th className="px-4 py-3 rounded-l-lg">Time (UTC)</th>
-                        <th className="px-4 py-3 rounded-r-lg">Email Address</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-800/50">
-                      {recent.map((req, i) => (
-                        <tr key={i} className="hover:bg-zinc-800/30 transition-colors">
-                          <td className="px-4 py-3 font-mono text-xs text-zinc-400">
-                            {new Date(req.timestamp).toLocaleString()}
-                          </td>
-                          <td className="px-4 py-3 font-medium text-zinc-200">
-                            {req.email}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
+                </div>
+              </div>
+
+              {/* Recent Requests Table */}
+              <div className="lg:col-span-2">
+                <div className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-6 h-[500px] flex flex-col">
+                  <h2 className="text-lg font-bold mb-6">Recent Requests (Latest 50)</h2>
+                  
+                  <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
+                    {recent.length === 0 ? (
+                      <div className="h-full flex items-center justify-center text-zinc-600 text-sm">
+                        No requests found yet.
+                      </div>
+                    ) : (
+                      <table className="w-full text-sm text-left">
+                        <thead className="text-xs text-zinc-500 uppercase bg-zinc-900/80 sticky top-0">
+                          <tr>
+                            <th className="px-4 py-3 rounded-l-lg">Time (UTC)</th>
+                            <th className="px-4 py-3 rounded-r-lg">Email Address</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-800/50">
+                          {recent.map((req, i) => (
+                            <tr key={i} className="hover:bg-zinc-800/30 transition-colors">
+                              <td className="px-4 py-3 font-mono text-xs text-zinc-400">
+                                {new Date(req.timestamp).toLocaleString()}
+                              </td>
+                              <td className="px-4 py-3 font-medium text-zinc-200">
+                                {req.email}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
+          </>
+        )}
+
+        {activeTab === 'emails' && (
+          <div className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-6 h-[700px] flex flex-col">
+            <h2 className="text-lg font-bold flex items-center gap-2 mb-6">
+              <Mail className="w-5 h-5 text-indigo-400" />
+              Saved Incoming Emails
+            </h2>
+            
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
+              {savedEmails.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-zinc-600 text-sm">
+                  No emails saved yet.
+                </div>
+              ) : (
+                <table className="w-full text-sm text-left">
+                  <thead className="text-xs text-zinc-500 uppercase bg-zinc-900/80 sticky top-0">
+                    <tr>
+                      <th className="px-4 py-3 rounded-l-lg">Account</th>
+                      <th className="px-4 py-3">From</th>
+                      <th className="px-4 py-3">Subject</th>
+                      <th className="px-4 py-3">Date</th>
+                      <th className="px-4 py-3 rounded-r-lg text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800/50">
+                    {savedEmails.map((email, i) => (
+                      <tr key={i} className="hover:bg-zinc-800/30 transition-colors">
+                        <td className="px-4 py-3 font-medium text-indigo-400">
+                          {email.accountEmail}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-300 truncate max-w-[150px]">
+                          {email.from}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-300 truncate max-w-[200px]">
+                          {email.subject}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-400 text-xs">
+                          {email.date}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button 
+                              onClick={() => setViewEmail(email)}
+                              className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-zinc-300 transition-colors"
+                              title="View Email"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => deleteEmail(email._key)}
+                              className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg text-rose-400 transition-colors"
+                              title="Delete Email"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
       </div>
+
+      {/* View Email Modal */}
+      {viewEmail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+            <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50">
+              <h3 className="font-bold text-lg truncate pr-4">{viewEmail.subject}</h3>
+              <button 
+                onClick={() => setViewEmail(null)}
+                className="p-2 hover:bg-zinc-800 rounded-xl transition-colors text-zinc-400"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-4 border-b border-zinc-800/50 bg-zinc-900/30 text-sm space-y-2">
+              <div className="flex gap-2">
+                <span className="text-zinc-500 w-16">From:</span>
+                <span className="text-zinc-200">{viewEmail.from}</span>
+              </div>
+              <div className="flex gap-2">
+                <span className="text-zinc-500 w-16">To:</span>
+                <span className="text-indigo-400">{viewEmail.accountEmail}</span>
+              </div>
+              <div className="flex gap-2">
+                <span className="text-zinc-500 w-16">Date:</span>
+                <span className="text-zinc-400">{viewEmail.date}</span>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-white text-black">
+              {viewEmail.html ? (
+                <iframe 
+                  srcDoc={viewEmail.html}
+                  className="w-full h-full min-h-[400px] border-0"
+                  sandbox="allow-same-origin"
+                />
+              ) : (
+                <pre className="whitespace-pre-wrap font-sans text-sm p-4 text-zinc-800">
+                  {viewEmail.text || viewEmail.body_preview || "No content available."}
+                </pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

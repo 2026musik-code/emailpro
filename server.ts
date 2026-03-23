@@ -151,6 +151,78 @@ api.post("/admin/config", async (c) => {
   }
 });
 
+api.post("/admin/emails", async (c) => {
+  try {
+    const email = await c.req.json();
+    const r2 = c.env?.VPSAI_R2;
+    if (!r2) return c.json({ error: "R2 not configured" }, 500);
+    
+    const key = `emails/${email.accountEmail}/${email.id}.json`;
+    
+    // Fetch existing to merge if it exists (so we don't overwrite full body with preview)
+    const existingObj = await r2.get(key);
+    let finalEmail = email;
+    if (existingObj) {
+      const existing = await existingObj.json();
+      finalEmail = { ...existing, ...email };
+      // If the new one doesn't have html/text but existing does, keep it
+      if (!email.html && existing.html) finalEmail.html = existing.html;
+      if (!email.text && existing.text) finalEmail.text = existing.text;
+    }
+
+    await r2.put(key, JSON.stringify(finalEmail));
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+api.get("/admin/emails", async (c) => {
+  try {
+    const r2 = c.env?.VPSAI_R2;
+    if (!r2) return c.json({ error: "R2 not configured" }, 500);
+    
+    let keys: any[] = [];
+    let cursor: string | undefined;
+    do {
+      const list = await r2.list({ prefix: "emails/", cursor });
+      keys.push(...list.objects);
+      cursor = list.truncated ? list.cursor : undefined;
+    } while (cursor);
+    
+    // Sort by uploaded descending
+    keys.sort((a, b) => b.uploaded.getTime() - a.uploaded.getTime());
+    
+    // Get latest 50
+    const topKeys = keys.slice(0, 50);
+    const emails = await Promise.all(topKeys.map(async (k) => {
+      const obj = await r2.get(k.key);
+      if (obj) {
+        const data = await obj.json();
+        return { ...data, _key: k.key };
+      }
+      return null;
+    }));
+    
+    return c.json({ success: true, emails: emails.filter(Boolean) });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+api.delete("/admin/emails", async (c) => {
+  try {
+    const { key } = await c.req.json();
+    const r2 = c.env?.VPSAI_R2;
+    if (!r2) return c.json({ error: "R2 not configured" }, 500);
+    
+    await r2.delete(key);
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 api.get("/generator/domains", async (c) => {
   try {
     const { load } = await import("cheerio");
