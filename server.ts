@@ -33,6 +33,124 @@ api.get("/health", (c) => {
   });
 });
 
+// --- ADMIN API ROUTES ---
+api.post("/admin/track", async (c) => {
+  try {
+    const { email, provider } = await c.req.json();
+    const r2 = c.env?.VPSAI_R2;
+    if (!r2) {
+      console.warn("VPSAI_R2 binding not found");
+      return c.json({ success: false, error: "R2 not configured" });
+    }
+
+    const timestamp = new Date().toISOString();
+    // Key format: requests/YYYY-MM-DD/YYYY-MM-DDTHH:MM:SSZ-email
+    const dateStr = timestamp.split('T')[0];
+    const key = `requests/${dateStr}/${timestamp}-${email}`;
+
+    // Check limits
+    const configObj = await r2.get("config.json");
+    let limit = 0;
+    if (configObj) {
+      const config = await configObj.json();
+      limit = config.dailyLimit || 0;
+    }
+
+    if (limit > 0) {
+      const list = await r2.list({ prefix: `requests/${dateStr}/` });
+      if (list.keys.length >= limit) {
+        return c.json({ error: "Daily limit reached" }, 429);
+      }
+    }
+
+    await r2.put(key, JSON.stringify({ email, provider, timestamp }));
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+api.get("/admin/stats", async (c) => {
+  try {
+    const r2 = c.env?.VPSAI_R2;
+    if (!r2) return c.json({ error: "R2 not configured" }, 500);
+
+    const configObj = await r2.get("config.json");
+    let config = { dailyLimit: 0 };
+    if (configObj) {
+      config = await configObj.json();
+    }
+
+    let keys: any[] = [];
+    let cursor: string | undefined;
+    
+    // Fetch all keys (Note: for huge scale, this needs proper pagination in UI, but fine for simple admin)
+    do {
+      const list = await r2.list({ prefix: "requests/", cursor });
+      keys.push(...list.keys);
+      cursor = list.truncated ? list.cursor : undefined;
+    } while (cursor);
+
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay());
+    const startOfWeekStr = startOfWeek.toISOString().split('T')[0];
+
+    const currentMonthStr = todayStr.substring(0, 7);
+
+    let daily = 0;
+    let weekly = 0;
+    let monthly = 0;
+    const total = keys.length;
+
+    // Sort keys by date descending
+    keys.sort((a, b) => b.name.localeCompare(a.name));
+    
+    const recentRequests = keys.slice(0, 50).map(k => {
+      const parts = k.name.split('/');
+      const filename = parts[parts.length - 1];
+      const time = filename.substring(0, 24);
+      const email = filename.substring(25);
+      return { email, timestamp: time };
+    });
+
+    keys.forEach(k => {
+      // name format: requests/YYYY-MM-DD/YYYY-MM-DDTHH:MM:SSZ-email
+      const parts = k.name.split('/');
+      if (parts.length >= 3) {
+        const datePart = parts[1];
+        if (datePart === todayStr) daily++;
+        if (datePart >= startOfWeekStr) weekly++;
+        if (datePart.startsWith(currentMonthStr)) monthly++;
+      }
+    });
+
+    return c.json({
+      success: true,
+      stats: { daily, weekly, monthly, total },
+      recentRequests,
+      config
+    });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+api.post("/admin/config", async (c) => {
+  try {
+    const { dailyLimit } = await c.req.json();
+    const r2 = c.env?.VPSAI_R2;
+    if (!r2) return c.json({ error: "R2 not configured" }, 500);
+
+    await r2.put("config.json", JSON.stringify({ dailyLimit: Number(dailyLimit) || 0 }));
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 api.get("/generator/domains", async (c) => {
   try {
     const { load } = await import("cheerio");

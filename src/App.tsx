@@ -49,11 +49,18 @@ interface Account {
   dmn?: string;
 }
 
+import AdminDashboard from './Admin';
+
 // --- Constants ---
 const MAIL_TM_API = 'https://api.mail.tm';
 const SECMAIL_API = 'https://www.1secmail.com/api/v1/';
 
 export default function App() {
+  // Simple router
+  if (typeof window !== 'undefined' && window.location.pathname === '/admin') {
+    return <AdminDashboard />;
+  }
+
   const [account, setAccount] = useState<Account | null>(null);
   const [emails, setEmails] = useState<EmailMessage[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<EmailMessage | null>(null);
@@ -137,11 +144,27 @@ export default function App() {
     addLog(`Generating ${tool} account...`, 'info');
     
     try {
+      // 1. Track request and check limits
+      const domain = selectedDomain || domains[0] || 'jymz.xyz';
+      const usr = username || Math.random().toString(36).substring(7);
+      const address = `${usr}@${domain}`;
+
+      try {
+        const trackRes = await fetch('/api/admin/track', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: address, provider: tool })
+        });
+        if (trackRes.status === 429) {
+          throw new Error("Daily limit reached. Please try again tomorrow.");
+        }
+      } catch (e: any) {
+        if (e.message.includes("Daily limit")) throw e;
+        console.error("Tracking failed", e);
+      }
+
       if (tool === 'mail.tm') {
-        const domain = selectedDomain || domains[0];
-        const usr = username || Math.random().toString(36).substring(7);
         const pwd = Math.random().toString(36).substring(7);
-        const address = `${usr}@${domain}`;
         
         const res = await fetch(`${MAIL_TM_API}/accounts`, {
           method: 'POST',
@@ -164,17 +187,13 @@ export default function App() {
         setAccount(newAcc);
         addLog(`Account created: ${address}`, 'success');
       } else if (tool === '1secmail') {
-        const usr = username || Math.random().toString(36).substring(7);
-        const dmn = selectedDomain || domains[0];
-        const address = `${usr}@${dmn}`;
+        const dmn = domain;
         const newAcc: Account = { address, token: '1secmail-token', id: usr, provider: '1secmail', usr, dmn };
         setAccount(newAcc);
         addLog(`1secmail account set: ${address}`, 'success');
       } else {
         // generator.email proxy
-        const usr = username || 'user' + Math.floor(Math.random() * 10000);
-        const dmn = selectedDomain || 'jymz.xyz';
-        const address = `${usr}@${dmn}`;
+        const dmn = domain;
         
         // Validate via proxy
         const apiUrl = `/api/generator/validate?usr=${usr}&dmn=${dmn}`;
