@@ -203,26 +203,28 @@ export default function AdminDashboard() {
                         No requests found yet.
                       </div>
                     ) : (
-                      <table className="w-full text-sm text-left">
-                        <thead className="text-xs text-zinc-500 uppercase bg-zinc-900/80 sticky top-0">
-                          <tr>
-                            <th className="px-4 py-3 rounded-l-lg">Time (UTC)</th>
-                            <th className="px-4 py-3 rounded-r-lg">Email Address</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-zinc-800/50">
-                          {recent.map((req, i) => (
-                            <tr key={i} className="hover:bg-zinc-800/30 transition-colors">
-                              <td className="px-4 py-3 font-mono text-xs text-zinc-400">
-                                {new Date(req.timestamp).toLocaleString()}
-                              </td>
-                              <td className="px-4 py-3 font-medium text-zinc-200">
-                                {req.email}
-                              </td>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left whitespace-nowrap">
+                          <thead className="text-xs text-zinc-500 uppercase bg-zinc-900/80 sticky top-0">
+                            <tr>
+                              <th className="px-4 py-3 rounded-l-lg">Time (UTC)</th>
+                              <th className="px-4 py-3 rounded-r-lg">Email Address</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="divide-y divide-zinc-800/50">
+                            {recent.map((req, i) => (
+                              <tr key={i} className="hover:bg-zinc-800/30 transition-colors">
+                                <td className="px-4 py-3 font-mono text-xs text-zinc-400">
+                                  {new Date(req.timestamp).toLocaleString()}
+                                </td>
+                                <td className="px-4 py-3 font-medium text-zinc-200">
+                                  {req.email}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -244,53 +246,55 @@ export default function AdminDashboard() {
                   No emails saved yet.
                 </div>
               ) : (
-                <table className="w-full text-sm text-left">
-                  <thead className="text-xs text-zinc-500 uppercase bg-zinc-900/80 sticky top-0">
-                    <tr>
-                      <th className="px-4 py-3 rounded-l-lg">Account</th>
-                      <th className="px-4 py-3">From</th>
-                      <th className="px-4 py-3">Subject</th>
-                      <th className="px-4 py-3">Date</th>
-                      <th className="px-4 py-3 rounded-r-lg text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-800/50">
-                    {savedEmails.map((email, i) => (
-                      <tr key={i} className="hover:bg-zinc-800/30 transition-colors">
-                        <td className="px-4 py-3 font-medium text-indigo-400">
-                          {email.accountEmail}
-                        </td>
-                        <td className="px-4 py-3 text-zinc-300 truncate max-w-[150px]">
-                          {email.from}
-                        </td>
-                        <td className="px-4 py-3 text-zinc-300 truncate max-w-[200px]">
-                          {email.subject}
-                        </td>
-                        <td className="px-4 py-3 text-zinc-400 text-xs">
-                          {email.date}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button 
-                              onClick={() => setViewEmail(email)}
-                              className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-zinc-300 transition-colors"
-                              title="View Email"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                            <button 
-                              onClick={() => deleteEmail(email._key)}
-                              className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg text-rose-400 transition-colors"
-                              title="Delete Email"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left whitespace-nowrap">
+                    <thead className="text-xs text-zinc-500 uppercase bg-zinc-900/80 sticky top-0">
+                      <tr>
+                        <th className="px-4 py-3 rounded-l-lg">Account</th>
+                        <th className="px-4 py-3">From</th>
+                        <th className="px-4 py-3">Subject</th>
+                        <th className="px-4 py-3">Date</th>
+                        <th className="px-4 py-3 rounded-r-lg text-right">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-800/50">
+                      {savedEmails.map((email, i) => (
+                        <tr key={i} className="hover:bg-zinc-800/30 transition-colors">
+                          <td className="px-4 py-3 font-medium text-indigo-400">
+                            {email.accountEmail}
+                          </td>
+                          <td className="px-4 py-3 text-zinc-300 truncate max-w-[150px]">
+                            {typeof email.from === 'object' ? email.from.address : email.from}
+                          </td>
+                          <td className="px-4 py-3 text-zinc-300 truncate max-w-[200px]">
+                            {email.subject}
+                          </td>
+                          <td className="px-4 py-3 text-zinc-400 text-xs">
+                            {email.date || email.createdAt || "Unknown"}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button 
+                                onClick={() => setViewEmail(email)}
+                                className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-zinc-300 transition-colors"
+                                title="View Email"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              <button 
+                                onClick={() => deleteEmail(email._key)}
+                                className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg text-rose-400 transition-colors"
+                                title="Delete Email"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           </div>
@@ -315,7 +319,7 @@ export default function AdminDashboard() {
             <div className="p-4 border-b border-zinc-800/50 bg-zinc-900/30 text-sm space-y-2">
               <div className="flex gap-2">
                 <span className="text-zinc-500 w-16">From:</span>
-                <span className="text-zinc-200">{viewEmail.from}</span>
+                <span className="text-zinc-200">{typeof viewEmail.from === 'object' ? viewEmail.from.address : viewEmail.from}</span>
               </div>
               <div className="flex gap-2">
                 <span className="text-zinc-500 w-16">To:</span>
@@ -323,7 +327,7 @@ export default function AdminDashboard() {
               </div>
               <div className="flex gap-2">
                 <span className="text-zinc-500 w-16">Date:</span>
-                <span className="text-zinc-400">{viewEmail.date}</span>
+                <span className="text-zinc-400">{viewEmail.date || viewEmail.createdAt || "Unknown"}</span>
               </div>
             </div>
 

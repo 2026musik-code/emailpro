@@ -494,7 +494,17 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-zinc-500 mb-2 uppercase tracking-wider">Domain</label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider">Domain</label>
+                  <button 
+                    onClick={fetchDomains}
+                    className="text-[10px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 uppercase font-bold tracking-wider transition-colors"
+                    title="Fetch latest domains"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    Update
+                  </button>
+                </div>
                 <select 
                   value={selectedDomain}
                   onChange={(e) => setSelectedDomain(e.target.value)}

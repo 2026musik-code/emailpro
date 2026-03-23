@@ -191,7 +191,7 @@ api.get("/admin/emails", async (c) => {
     } while (cursor);
     
     // Sort by uploaded descending
-    keys.sort((a, b) => b.uploaded.getTime() - a.uploaded.getTime());
+    keys.sort((a, b) => new Date(b.uploaded).getTime() - new Date(a.uploaded).getTime());
     
     // Get latest 50
     const topKeys = keys.slice(0, 50);
