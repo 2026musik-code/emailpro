@@ -58,7 +58,7 @@ api.post("/admin/track", async (c) => {
 
     if (limit > 0) {
       const list = await r2.list({ prefix: `requests/${dateStr}/` });
-      if (list.keys.length >= limit) {
+      if (list.objects.length >= limit) {
         return c.json({ error: "Daily limit reached" }, 429);
       }
     }
@@ -87,7 +87,7 @@ api.get("/admin/stats", async (c) => {
     // Fetch all keys (Note: for huge scale, this needs proper pagination in UI, but fine for simple admin)
     do {
       const list = await r2.list({ prefix: "requests/", cursor });
-      keys.push(...list.keys);
+      keys.push(...list.objects);
       cursor = list.truncated ? list.cursor : undefined;
     } while (cursor);
 
@@ -106,10 +106,10 @@ api.get("/admin/stats", async (c) => {
     const total = keys.length;
 
     // Sort keys by date descending
-    keys.sort((a, b) => b.name.localeCompare(a.name));
+    keys.sort((a, b) => b.key.localeCompare(a.key));
     
     const recentRequests = keys.slice(0, 50).map(k => {
-      const parts = k.name.split('/');
+      const parts = k.key.split('/');
       const filename = parts[parts.length - 1];
       const time = filename.substring(0, 24);
       const email = filename.substring(25);
@@ -118,7 +118,7 @@ api.get("/admin/stats", async (c) => {
 
     keys.forEach(k => {
       // name format: requests/YYYY-MM-DD/YYYY-MM-DDTHH:MM:SSZ-email
-      const parts = k.name.split('/');
+      const parts = k.key.split('/');
       if (parts.length >= 3) {
         const datePart = parts[1];
         if (datePart === todayStr) daily++;
