@@ -379,10 +379,19 @@ api.get("/generator/message", async (c) => {
 app.route("/api", api);
 
 // In Cloudflare Workers with [assets] configuration, 
-// Cloudflare will serve static files automatically if no worker route matches.
-// We only handle API routes in the worker.
+// we need to explicitly pass non-API requests to the ASSETS binding
+// so that the SPA routing (like /admin) works correctly.
 
-export default app;
+export default {
+  async fetch(request: Request, env: any, ctx: any) {
+    const url = new URL(request.url);
+    if (url.pathname.startsWith('/api') || url.pathname === '/worker-test') {
+      return app.fetch(request, env, ctx);
+    }
+    // Serve static assets for all other routes
+    return env.ASSETS.fetch(request);
+  }
+};
 
 // For Node.js development environment compatibility
 if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production') {
