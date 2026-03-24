@@ -3,6 +3,13 @@ import { Shield, Users, Activity, Settings, Save, ArrowLeft, RefreshCw, Database
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<'stats' | 'emails'>('stats');
+  const [token, setToken] = useState<string | null>(localStorage.getItem('adminToken'));
+  const [loginUser, setLoginUser] = useState('');
+  const [loginPass, setLoginPass] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [authForm, setAuthForm] = useState({ currentPassword: '', newUsername: '', newPassword: '' });
+  const [authSaving, setAuthSaving] = useState(false);
+
   const [stats, setStats] = useState({ daily: 0, weekly: 0, monthly: 0, total: 0 });
   const [recent, setRecent] = useState<{email: string, timestamp: string}[]>([]);
   const [savedEmails, setSavedEmails] = useState<any[]>([]);
@@ -13,11 +20,14 @@ export default function AdminDashboard() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchStats = async () => {
+    if (!token) return;
     setLoading(true);
     setError(null);
     try {
+      const headers = { 'Authorization': `Bearer ${token}` };
       if (activeTab === 'stats') {
-        const res = await fetch('/api/admin/stats');
+        const res = await fetch('/api/admin/stats', { headers });
+        if (res.status === 401) throw new Error('Unauthorized');
         const data = await res.json();
         if (data.error) throw new Error(data.error);
         
@@ -25,30 +35,94 @@ export default function AdminDashboard() {
         setRecent(data.recentRequests || []);
         setConfig(data.config || { dailyLimit: 0 });
       } else {
-        const res = await fetch('/api/admin/emails');
+        const res = await fetch('/api/admin/emails', { headers });
+        if (res.status === 401) throw new Error('Unauthorized');
         const data = await res.json();
         if (data.error) throw new Error(data.error);
         setSavedEmails(data.emails || []);
       }
     } catch (err: any) {
-      setError(err.message || "Failed to load admin data. Is R2 bound?");
+      if (err.message === 'Unauthorized') {
+        setToken(null);
+        localStorage.removeItem('adminToken');
+      } else {
+        setError(err.message || "Failed to load admin data. Is R2 bound?");
+      }
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchStats();
-  }, [activeTab]);
+    if (token) {
+      fetchStats();
+    }
+  }, [activeTab, token]);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setLoginError('');
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: loginUser, password: loginPass })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setToken(data.token);
+        localStorage.setItem('adminToken', data.token);
+      } else {
+        setLoginError(data.error || 'Login failed');
+      }
+    } catch (err: any) {
+      setLoginError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const changePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthSaving(true);
+    try {
+      const res = await fetch('/api/admin/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(authForm)
+      });
+      if (res.status === 401) throw new Error('Unauthorized');
+      const data = await res.json();
+      if (data.success) {
+        alert('Credentials updated successfully!');
+        setToken(data.token);
+        localStorage.setItem('adminToken', data.token);
+        setAuthForm({ currentPassword: '', newUsername: '', newPassword: '' });
+      } else {
+        throw new Error(data.error || 'Failed to update credentials');
+      }
+    } catch (err: any) {
+      if (err.message === 'Unauthorized') {
+        setToken(null);
+        localStorage.removeItem('adminToken');
+      } else {
+        alert(err.message);
+      }
+    } finally {
+      setAuthSaving(false);
+    }
+  };
 
   const saveConfig = async () => {
     setSaving(true);
     try {
       const res = await fetch('/api/admin/config', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ dailyLimit: config.dailyLimit })
       });
+      if (res.status === 401) throw new Error('Unauthorized');
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       alert('Configuration saved successfully!');
@@ -64,9 +138,10 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/emails', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ key })
       });
+      if (res.status === 401) throw new Error('Unauthorized');
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setSavedEmails(prev => prev.filter(e => e._key !== key));
@@ -74,6 +149,57 @@ export default function AdminDashboard() {
       alert(`Error deleting email: ${err.message}`);
     }
   };
+
+  if (!token) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center p-4 text-zinc-100 font-sans">
+        <div className="bg-zinc-900/50 border border-zinc-800 p-8 rounded-3xl w-full max-w-md shadow-2xl">
+          <div className="flex justify-center mb-6">
+            <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
+              <Shield className="w-6 h-6 text-white" />
+            </div>
+          </div>
+          <h1 className="text-2xl font-bold text-center mb-2">Admin Login</h1>
+          <p className="text-zinc-500 text-center text-sm mb-8">Enter your credentials to continue</p>
+          
+          <form onSubmit={handleLogin} className="space-y-4">
+            {loginError && (
+              <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 p-3 rounded-xl text-sm text-center">
+                {loginError}
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-semibold text-zinc-500 mb-2 uppercase tracking-wider">Username</label>
+              <input 
+                type="text" 
+                value={loginUser}
+                onChange={e => setLoginUser(e.target.value)}
+                className="w-full bg-black/50 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 transition-colors"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-zinc-500 mb-2 uppercase tracking-wider">Password</label>
+              <input 
+                type="password" 
+                value={loginPass}
+                onChange={e => setLoginPass(e.target.value)}
+                className="w-full bg-black/50 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 transition-colors"
+                required
+              />
+            </div>
+            <button 
+              type="submit"
+              disabled={loading}
+              className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 mt-4"
+            >
+              {loading ? <RefreshCw className="w-5 h-5 animate-spin" /> : 'Login'}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-zinc-100 font-sans p-4 sm:p-8">
@@ -118,6 +244,12 @@ export default function AdminDashboard() {
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
+            </button>
+            <button 
+              onClick={() => { setToken(null); localStorage.removeItem('adminToken'); }}
+              className="px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-xl text-sm font-medium transition-colors ml-2"
+            >
+              Logout
             </button>
           </div>
         </div>
@@ -189,6 +321,54 @@ export default function AdminDashboard() {
                       Save Configuration
                     </button>
                   </div>
+                </div>
+
+                {/* Credentials Panel */}
+                <div className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-6 mt-6">
+                  <h2 className="text-lg font-bold flex items-center gap-2 mb-6">
+                    <Shield className="w-5 h-5 text-zinc-400" />
+                    Admin Credentials
+                  </h2>
+                  <form onSubmit={changePassword} className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-400 mb-2">Current Password</label>
+                      <input 
+                        type="password" 
+                        value={authForm.currentPassword}
+                        onChange={(e) => setAuthForm({...authForm, currentPassword: e.target.value})}
+                        className="w-full bg-black/50 border border-zinc-800 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-400 mb-2">New Username</label>
+                      <input 
+                        type="text" 
+                        value={authForm.newUsername}
+                        onChange={(e) => setAuthForm({...authForm, newUsername: e.target.value})}
+                        placeholder="Leave blank to keep current"
+                        className="w-full bg-black/50 border border-zinc-800 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-400 mb-2">New Password</label>
+                      <input 
+                        type="password" 
+                        value={authForm.newPassword}
+                        onChange={(e) => setAuthForm({...authForm, newPassword: e.target.value})}
+                        className="w-full bg-black/50 border border-zinc-800 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                        required
+                      />
+                    </div>
+                    <button 
+                      type="submit"
+                      disabled={authSaving}
+                      className="w-full bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+                    >
+                      {authSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      Update Credentials
+                    </button>
+                  </form>
                 </div>
               </div>
 

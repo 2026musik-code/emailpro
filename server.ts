@@ -70,8 +70,69 @@ api.post("/admin/track", async (c) => {
   }
 });
 
+// Admin Auth Helpers
+async function getAdminAuth(r2: any) {
+  try {
+    const obj = await r2.get('admin/auth.json');
+    if (obj) return await obj.json();
+  } catch (e) {}
+  return { username: 'emailpro', password: 'ninapro' };
+}
+
+async function checkAuth(c: any) {
+  const authHeader = c.req.header('Authorization');
+  const r2 = c.env?.VPSAI_R2;
+  const auth = await getAdminAuth(r2);
+  const expectedToken = `Bearer ${btoa(`${auth.username}:${auth.password}`)}`;
+  return authHeader === expectedToken;
+}
+
+api.post("/admin/login", async (c) => {
+  try {
+    const { username, password } = await c.req.json();
+    const r2 = c.env?.VPSAI_R2;
+    if (!r2) return c.json({ error: "R2 not configured" }, 500);
+    
+    const auth = await getAdminAuth(r2);
+    if (username === auth.username && password === auth.password) {
+      const token = btoa(`${username}:${password}`);
+      return c.json({ success: true, token });
+    }
+    return c.json({ error: "Invalid credentials" }, 401);
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+api.post("/admin/change-password", async (c) => {
+  try {
+    if (!(await checkAuth(c))) return c.json({ error: "Unauthorized" }, 401);
+    
+    const { currentPassword, newUsername, newPassword } = await c.req.json();
+    const r2 = c.env?.VPSAI_R2;
+    const auth = await getAdminAuth(r2);
+
+    if (currentPassword !== auth.password) {
+      return c.json({ error: "Incorrect current password" }, 401);
+    }
+
+    const updatedAuth = {
+      username: newUsername || auth.username,
+      password: newPassword
+    };
+
+    await r2.put('admin/auth.json', JSON.stringify(updatedAuth));
+    const token = btoa(`${updatedAuth.username}:${updatedAuth.password}`);
+
+    return c.json({ success: true, token });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 api.get("/admin/stats", async (c) => {
   try {
+    if (!(await checkAuth(c))) return c.json({ error: "Unauthorized" }, 401);
     const r2 = c.env?.VPSAI_R2;
     if (!r2) return c.json({ error: "R2 not configured" }, 500);
 
@@ -140,6 +201,7 @@ api.get("/admin/stats", async (c) => {
 
 api.post("/admin/config", async (c) => {
   try {
+    if (!(await checkAuth(c))) return c.json({ error: "Unauthorized" }, 401);
     const { dailyLimit } = await c.req.json();
     const r2 = c.env?.VPSAI_R2;
     if (!r2) return c.json({ error: "R2 not configured" }, 500);
@@ -179,6 +241,7 @@ api.post("/admin/emails", async (c) => {
 
 api.get("/admin/emails", async (c) => {
   try {
+    if (!(await checkAuth(c))) return c.json({ error: "Unauthorized" }, 401);
     const r2 = c.env?.VPSAI_R2;
     if (!r2) return c.json({ error: "R2 not configured" }, 500);
     
@@ -212,6 +275,7 @@ api.get("/admin/emails", async (c) => {
 
 api.delete("/admin/emails", async (c) => {
   try {
+    if (!(await checkAuth(c))) return c.json({ error: "Unauthorized" }, 401);
     const { key } = await c.req.json();
     const r2 = c.env?.VPSAI_R2;
     if (!r2) return c.json({ error: "R2 not configured" }, 500);
