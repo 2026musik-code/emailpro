@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Users, Activity, Settings, Save, ArrowLeft, RefreshCw, Database, Mail, Trash2, Eye, X } from 'lucide-react';
+import { Shield, Users, Activity, Settings, Save, ArrowLeft, RefreshCw, Database, Mail, Trash2, Eye, X, LogIn } from 'lucide-react';
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<'stats' | 'emails'>('stats');
@@ -15,7 +15,7 @@ export default function AdminDashboard() {
   const [savedEmails, setSavedEmails] = useState<any[]>([]);
   const [viewEmail, setViewEmail] = useState<any | null>(null);
   const [config, setConfig] = useState({ dailyLimit: 0 });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!!localStorage.getItem('adminToken'));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -193,7 +193,8 @@ export default function AdminDashboard() {
               disabled={loading}
               className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 mt-4"
             >
-              {loading ? <RefreshCw className="w-5 h-5 animate-spin" /> : 'Login'}
+              {loading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <LogIn className="w-5 h-5" />}
+              {loading ? 'Logging in...' : 'Login'}
             </button>
           </form>
         </div>
